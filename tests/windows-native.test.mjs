@@ -46,4 +46,11 @@ test('Windows native helper parses and protects a disposable private state path'
   }
   t.diagnostic(JSON.stringify(results));
   assert.ok(results.every(x=>x.ok),'native helper must accept the disposable protected path and its safe ancestry; see sanitized metadata');
+  // Exercise OUR DPAPI bridge with synthetic bytes, not bank/device credentials.
+  const id='1'.repeat(64),key=Buffer.alloc(32,19).toString('hex');
+  const sealed=await windowsNative({operation:'seal',id,value:key});
+  assert.equal(typeof sealed.value,'string');assert.ok(sealed.value!==key);
+  const opened=await windowsNative({operation:'unprotect',id,value:sealed.value});
+  assert.ok(opened.value===key,'DPAPI round-trip must preserve the synthetic key');
+  await assert.rejects(windowsNative({operation:'unprotect',id:'2'.repeat(64),value:sealed.value}),{code:'secret_provider_unavailable'});
 });
