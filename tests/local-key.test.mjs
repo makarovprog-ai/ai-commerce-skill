@@ -8,9 +8,10 @@ import {fileURLToPath} from 'node:url';
 import {Storage} from '../cli/storage.mjs';
 import {createSecretProvider,inspectSecretProvider} from '../cli/secret-store.mjs';
 import {ClientError} from '../cli/errors.mjs';
+import {protect} from '../cli/platform-storage.mjs';
 const missing=async()=>{throw new ClientError('secret_provider_unavailable');};
-async function fixture(t){const directory=await mkdtemp(join(await realpath(tmpdir()),'commerce-local-'));await chmod(directory,0o700);t.after(()=>rm(directory,{recursive:true,force:true}));return directory;}
-function store(directory,notices=[]){return new Storage(directory,'mcp',{secretProvider:createSecretProvider({directory,run:missing,onNotice:n=>notices.push(n)})});}
+async function fixture(t){const directory=await mkdtemp(join(await realpath(tmpdir()),'commerce-local-'));await chmod(directory,0o700);await protect(directory);t.after(()=>rm(directory,{recursive:true,force:true}));return directory;}
+function store(directory,notices=[]){return new Storage(directory,'mcp',{secretProvider:createSecretProvider({directory,platform:'linux',run:missing,onNotice:n=>notices.push(n)})});}
 
 test('missing native store automatically creates a persistent guarded key and reopens encrypted custody',async t=>{
   const directory=await fixture(t),notices=[];let thumb;
@@ -38,12 +39,24 @@ test('working native provider remains preferred and no local key is created',asy
 });
 test('native failure never rekeys an existing vault or overwrites its bytes',async t=>{
   const directory=await fixture(t);await writeFile(join(directory,'vault.json'),'original-native-vault',{mode:0o600});
-  const p=createSecretProvider({directory,run:missing});await assert.rejects(p.get({id:'b'.repeat(64),create:true}),{code:'secret_provider_unavailable'});
+  const p=createSecretProvider({directory,platform:'linux',run:missing});await assert.rejects(p.get({id:'b'.repeat(64),create:true}),{code:'secret_provider_unavailable'});
   assert.equal(await readFile(join(directory,'vault.json'),'utf8'),'original-native-vault');assert.deepEqual(await readdir(directory),['vault.json']);
 });
 test('malformed native key is corruption, not permission to silently choose a file key',async t=>{
   const directory=await fixture(t),p=createSecretProvider({directory,platform:'linux',run:async()=>({code:0,stdout:Buffer.from('not-a-key')})});
   await assert.rejects(p.get({id:'b'.repeat(64),create:true}),{code:'unsafe_storage'});assert.deepEqual(await readdir(directory),[]);
+});
+test('successful empty native lookup is corruption and never triggers a store or fallback',async t=>{
+  const directory=await fixture(t);let calls=0;
+  const p=createSecretProvider({directory,platform:'linux',run:async()=>{calls++;if(calls===1)return {code:0,stdout:Buffer.alloc(0)};throw new ClientError('secret_provider_unavailable');}});
+  await assert.rejects(p.get({id:'b'.repeat(64),create:true}),{code:'unsafe_storage'});assert.equal(calls,1);assert.deepEqual(await readdir(directory),[]);
+});
+test('native key readback mismatch never switches Linux or macOS custody to a file key',async t=>{
+  for(const platform of ['linux','darwin']){
+    const directory=await fixture(t);let calls=0;
+    const p=createSecretProvider({directory,platform,run:async()=>{calls++;return calls===1?{code:platform==='linux'?1:44,stdout:Buffer.alloc(0)}:calls===2?{code:0,stdout:Buffer.alloc(0)}:{code:0,stdout:Buffer.from('c'.repeat(64))};}});
+    await assert.rejects(p.get({id:'b'.repeat(64),create:true}),{code:'unsafe_storage'});assert.equal(calls,3);assert.deepEqual(await readdir(directory),[]);
+  }
 });
 test('malformed or wrong-namespace local key fails closed without replacement',async t=>{
   const directory=await fixture(t);await store(directory).withLock(s=>s.keys(true));

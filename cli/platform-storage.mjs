@@ -8,10 +8,10 @@ import {ClientError} from './errors.mjs';
 
 export const unsafe=()=>new ClientError('unsafe_storage');
 // Never expose child errors: OS tools may include their secret stdin in diagnostics.
-export function nativeRun(program,args,input='',{allowed=[0],timeout=15000,fd}={}) {
+export function nativeRun(program,args,input='',{allowed=[0],timeout=15000,fd,env}={}) {
   if(typeof program!=='string'||!(isAbsolute(program)||win32.isAbsolute(program)))return Promise.reject(new ClientError('secret_provider_unavailable'));
   return new Promise((accept,reject)=>{
-    const child=spawn(program,args,{stdio:['pipe','pipe','pipe',...(fd===undefined?[]:[fd])],windowsHide:true,shell:false});
+    const child=spawn(program,args,{stdio:['pipe','pipe','pipe',...(fd===undefined?[]:[fd])],windowsHide:true,shell:false,...(env?{env}:{})});
     const chunks=[];let size=0,done=false;
     const timer=setTimeout(()=>{child.kill();finish(false);},timeout);timer.unref();
     function finish(ok,code){if(done)return;done=true;clearTimeout(timer);if(ok)accept({code,stdout:Buffer.concat(chunks)});else{for(const b of chunks)b.fill(0);reject(new ClientError('secret_provider_unavailable'));}}
@@ -27,7 +27,12 @@ export function windowsExecutable(systemRoot=process.env.SystemRoot) {
 export async function windowsNative(request) {
   const exe=windowsExecutable();
   const helper=fileURLToPath(new URL('./native/windows-storage.ps1',import.meta.url));
-  const result=await nativeRun(exe,['-NoLogo','-NoProfile','-NonInteractive','-File',helper],JSON.stringify(request));
+  // Node launched from pwsh inherits PS7's incompatible module search path.
+  // Constrain ONLY this child; never mutate the user's shell or host policy.
+  const env={...process.env};for(const name of Object.keys(env))if(name.toLowerCase()==='psmodulepath')delete env[name];
+  env.PSModulePath=win32.join(win32.dirname(exe),'Modules');
+  const result=await nativeRun(exe,['-NoLogo','-NoProfile','-NonInteractive','-File',helper],JSON.stringify(request),{env,allowed:[0,2]});
+  if(result.code===2)throw unsafe();
   try{return JSON.parse(result.stdout.toString('utf8'));}catch{throw unsafe();}finally{result.stdout.fill(0);}
 }
 export async function protect(path) {if(process.platform==='win32')await windowsNative({operation:'protect',path});}

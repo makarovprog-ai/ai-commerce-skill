@@ -101,6 +101,7 @@ test('physical legacy key files are not migrated or ignored during new custody i
 });
 test('absent native backend automatically persists a local key for a fresh vault',async t=>{
   const {root}=await fixture(t);const {createSecretProvider}=await import('../cli/storage.mjs');
+  const {protect}=await import('../cli/platform-storage.mjs');await protect(root);
   const p=createSecretProvider({directory:root,platform:'unsupported'});
   assert.equal((await p.get({id:'a'.repeat(64),create:true})).length,32);
   assert.deepEqual(await readdir(root),['key.local.json']);

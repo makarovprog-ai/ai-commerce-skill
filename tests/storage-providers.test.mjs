@@ -17,6 +17,7 @@ test('Windows helper honors host execution policy and uses only an absolute syst
  try{assert.deepEqual(await windowsNative({operation:'check',path:'C:\\private'}),{ok:true});
   assert.ok(!calls[0].args.some(arg=>/executionpolicy|bypass/i.test(arg)));assert.equal(calls[0].options.shell,false);
   assert.equal(calls[0].program,'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  assert.equal(calls[0].options.env?.PSModulePath,'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules');
  }finally{t.mock.restoreAll();syncBuiltinESMExports();if(previous===undefined)delete process.env.SystemRoot;else process.env.SystemRoot=previous;}
 });
 test('native launch refuses PATH resolution and failures offer policy-preserving guidance',async t=>{
@@ -24,6 +25,14 @@ test('native launch refuses PATH resolution and failures offer policy-preserving
  await assert.rejects(nativeRun('powershell.exe',[]),{code:'secret_provider_unavailable'});
  const output=publicError(new (await import('../cli/errors.mjs')).ClientError('secret_provider_unavailable'));
  assert.match(output.next_action,/doctor/);assert.match(output.next_action,/policy/);assert.ok(!JSON.stringify(output).includes('Bypass'));
+});
+test('Windows helper explicit unsafe-state exit is not disguised as provider absence',async t=>{
+ const previous=process.env.SystemRoot;process.env.SystemRoot='C:\\Windows';
+ t.mock.method(childProcess,'spawn',()=>{
+  const child=new EventEmitter();child.stdin=new EventEmitter();child.stdin.end=()=>queueMicrotask(()=>child.emit('close',2));child.stdout=new EventEmitter();child.stderr=new EventEmitter();child.kill=()=>{};return child;
+ });syncBuiltinESMExports();
+ try{await assert.rejects(windowsNative({operation:'check',path:'C:\\private'}),{code:'unsafe_storage'});}
+ finally{t.mock.restoreAll();syncBuiltinESMExports();if(previous===undefined)delete process.env.SystemRoot;else process.env.SystemRoot=previous;}
 });
 
 test('macOS native provider sends generated password only via stdin and verifies persistence',async()=>{

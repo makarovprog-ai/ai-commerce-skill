@@ -14,6 +14,7 @@ test('Windows native helper parses and protects a disposable private state path'
   const file=join(root,'input.json');await writeFile(file,'{}');
   const script=String.raw`
     $ErrorActionPreference='Stop'
+    $env:PSModulePath=$PSHOME+'\Modules'
     try {
     $r=[Console]::In.ReadToEnd()|ConvertFrom-Json
     $tokens=$null; $errors=$null

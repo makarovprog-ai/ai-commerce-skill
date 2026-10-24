@@ -102,9 +102,9 @@ export function createSecretProvider({directory,passphraseFd,platform=process.pl
     }else if(platform==='linux') {
       const lookup=await run('/usr/bin/secret-tool',['lookup','service','ai-commerce','account',id],'',{allowed:[0,1]});
       const existing=lookup.stdout.toString('utf8').trim();lookup.stdout.fill(0);
-      if(lookup.code===0&&existing)key=decodeKey(existing);
+      if(lookup.code===0)key=decodeKey(existing);
       else{if(!create)throw unavailable();key=randomBytes(32);const stored=await run('/usr/bin/secret-tool',['store','--label=AI Commerce device vault','service','ai-commerce','account',id],key.toString('hex')+'\n');stored.stdout.fill(0);
-        const check=await run('/usr/bin/secret-tool',['lookup','service','ai-commerce','account',id]);try{const actual=decodeKey(check.stdout.toString('utf8').trim());if(!timingSafeEqual(key,actual))throw unavailable();actual.fill(0);}finally{check.stdout.fill(0);}}
+        const check=await run('/usr/bin/secret-tool',['lookup','service','ai-commerce','account',id]);try{const actual=decodeKey(check.stdout.toString('utf8').trim());try{if(!timingSafeEqual(key,actual))throw unsafe();}finally{actual.fill(0);}}finally{check.stdout.fill(0);}}
     }else if(platform==='darwin') {
       const args=['find-generic-password','-s','ai-commerce','-a',id,'-w'];
       const lookup=await run('/usr/bin/security',args,'',{allowed:[0,44]});
@@ -114,7 +114,7 @@ export function createSecretProvider({directory,passphraseFd,platform=process.pl
         // The command grammar contains only fixed words, a validated hex ID and hex key.
         // No password is ever in process argv; interactive diagnostics are discarded.
         const stored=await run('/usr/bin/security',['-i'],`add-generic-password -a ${id} -s ai-commerce -w ${key.toString('hex')}\n`);stored.stdout.fill(0);
-        const check=await run('/usr/bin/security',args);try{if(check.code!==0)throw unavailable();const actual=decodeKey(check.stdout.toString('utf8').trim());if(!timingSafeEqual(key,actual))throw unavailable();actual.fill(0);}finally{check.stdout.fill(0);}}
+        const check=await run('/usr/bin/security',args);try{if(check.code!==0)throw unavailable();const actual=decodeKey(check.stdout.toString('utf8').trim());try{if(!timingSafeEqual(key,actual))throw unsafe();}finally{actual.fill(0);}}finally{check.stdout.fill(0);}}
     }else if(platform==='win32') {
       const data=await readPrivate(directory,'key.dpapi');
       if(data){const result=await windowsNative({operation:'unprotect',id,value:data.toString('utf8')});key=decodeKey(result.value);}

@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+$env:PSModulePath = $PSHOME + '\Modules'
 try {
   $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
   $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -66,4 +67,7 @@ try {
     }
     [Console]::Out.Write((@{value=$value} | ConvertTo-Json -Compress))
   } else { throw 'unsafe' }
-} catch { [Console]::Error.Write('native_storage_failed'); exit 1 }
+} catch {
+  if ($_.Exception.Message -eq 'unsafe') { exit 2 }
+  [Console]::Error.Write('native_storage_failed'); exit 1
+}
