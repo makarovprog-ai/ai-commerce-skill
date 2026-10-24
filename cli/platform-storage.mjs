@@ -42,19 +42,24 @@ async function checkPermissions(path,entry,directory=false) {
 }
 export async function inspectDirectory(directory,create=false) {
   if(typeof directory!=='string'||!directory||resolve(directory)!==directory||directory===parse(directory).root||directory.startsWith('\\\\'))throw unsafe();
-  let path=parse(directory).root;
+  let path=parse(directory).root;const ancestors=[];
   for(const part of directory.slice(path.length).split(sep).filter(Boolean)) {
     path=join(path,part);
     if(['.git','node_modules','static','public','www','wwwroot'].includes(part.toLowerCase()))throw unsafe();
-    let entry;try{entry=await lstat(path);}catch(error){if(error.code!=='ENOENT')throw unsafe();if(!create)return false;try{await mkdir(path,{mode:0o700});await protect(path);}catch(e){if(e.code!=='EEXIST')throw unsafe();}entry=await lstat(path);}
+    let entry;try{entry=await lstat(path);}catch(error){if(error.code!=='ENOENT')throw unsafe();
+      if(process.platform==='win32'&&ancestors.length)await windowsNative({operation:'ancestors',paths:ancestors});
+      if(!create)return false;
+      try{await mkdir(path,{mode:0o700});await protect(path);}catch(e){if(e.code!=='EEXIST')throw unsafe();}entry=await lstat(path);}
     if(!entry.isDirectory()||entry.isSymbolicLink())throw unsafe();
     if(process.platform!=='win32') {
       if(![0,process.geteuid()].includes(entry.uid))throw unsafe();
       // Root-owned sticky system temporary directories are safe ancestors, not vault roots.
       if((entry.mode&0o022)!==0&&!(path!==directory&&entry.uid===0&&(entry.mode&0o1000)!==0))throw unsafe();
     }
-    if(path===directory)await checkPermissions(path,entry,true);
-    else if(process.platform==='win32')await windowsNative({operation:'ancestor',path});
+    if(path===directory){
+      if(process.platform==='win32'&&ancestors.length)await windowsNative({operation:'ancestors',paths:ancestors});
+      await checkPermissions(path,entry,true);
+    }else if(process.platform==='win32')ancestors.push(path);
     try{const git=await lstat(join(path,'.git'));if(git.isFile()||git.isSymbolicLink())throw unsafe();await lstat(join(path,'.git','HEAD'));throw unsafe();}catch(error){if(error.code!=='ENOENT')throw error;}
   }
   return true;

@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createSecretProvider} from '../cli/secret-store.mjs';
 import {nativeRun,windowsNative} from '../cli/platform-storage.mjs';
+import {inspectDirectory} from '../cli/platform-storage.mjs';
+import {mkdtemp,rm,realpath,lstat} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,dirname} from 'node:path';
 import childProcess from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
 import {PassThrough} from 'node:stream';
@@ -33,6 +37,16 @@ test('Windows helper explicit unsafe-state exit is not disguised as provider abs
  });syncBuiltinESMExports();
  try{await assert.rejects(windowsNative({operation:'check',path:'C:\\private'}),{code:'unsafe_storage'});}
  finally{t.mock.restoreAll();syncBuiltinESMExports();if(previous===undefined)delete process.env.SystemRoot;else process.env.SystemRoot=previous;}
+});
+test('Windows directory checks batch existing ancestors before verifying the leaf',async t=>{
+ const directory=await mkdtemp(join(await realpath(tmpdir()),'commerce-batch-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const originalPlatform=Object.getOwnPropertyDescriptor(process,'platform'),previous=process.env.SystemRoot;const calls=[];let deny=false;process.env.SystemRoot='C:\\Windows';
+ Object.defineProperty(process,'platform',{...originalPlatform,value:'win32'});
+ t.mock.method(childProcess,'spawn',()=>{const c=new EventEmitter();c.stdout=new EventEmitter();c.stderr=new EventEmitter();c.stdin=new EventEmitter();c.kill=()=>{};c.stdin.end=input=>{calls.push(JSON.parse(input));queueMicrotask(()=>{if(!deny)c.stdout.emit('data',Buffer.from('{"ok":true}'));c.emit('close',deny?2:0);});};return c;});syncBuiltinESMExports();
+ try{assert.equal(await inspectDirectory(directory),true);assert.equal(calls.length,2);assert.equal(calls[0].operation,'ancestors');assert.ok(calls[0].paths.includes(dirname(directory)));assert.deepEqual(calls[1],{operation:'check',path:directory});
+  deny=true;const absent=join(directory,'not-created');await assert.rejects(inspectDirectory(absent,false),{code:'unsafe_storage'});await assert.rejects(inspectDirectory(absent,true),{code:'unsafe_storage'});await assert.rejects(lstat(absent),{code:'ENOENT'});
+ }
+ finally{t.mock.restoreAll();syncBuiltinESMExports();Object.defineProperty(process,'platform',originalPlatform);if(previous===undefined)delete process.env.SystemRoot;else process.env.SystemRoot=previous;}
 });
 
 test('macOS native provider sends generated password only via stdin and verifies persistence',async()=>{

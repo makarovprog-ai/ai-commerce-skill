@@ -1,10 +1,27 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $env:PSModulePath = $PSHOME + '\Modules'
+function Assert-Ancestor($path, $sid) {
+  $item = Get-Item -LiteralPath $path -Force
+  if (!$item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'unsafe' }
+  $acl = Get-Acl -LiteralPath $path
+  $trusted = @($sid.Value, 'S-1-5-18', 'S-1-5-32-544')
+  if ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -notin $trusted) { throw 'unsafe' }
+  $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
+  if ($rules.Count -eq 0) { throw 'unsafe' }
+  $mutation = [System.Security.AccessControl.FileSystemRights]::Write -bor [System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor [System.Security.AccessControl.FileSystemRights]::TakeOwnership
+  foreach ($rule in $rules) {
+    if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin $trusted -and (($rule.FileSystemRights -band $mutation) -ne 0)) { throw 'unsafe' }
+  }
+}
 try {
   $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
   $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-  if ($request.operation -eq 'input') {
+  if ($request.operation -eq 'ancestors') {
+    if ($request.paths -isnot [Array] -or $request.paths.Count -gt 256) { throw 'unsafe' }
+    foreach ($path in $request.paths) { if ($path -isnot [string]) { throw 'unsafe' }; Assert-Ancestor $path $sid }
+    [Console]::Out.Write('{"ok":true}')
+  } elseif ($request.operation -eq 'input') {
     $item = Get-Item -LiteralPath $request.path -Force
     if ($item.PSIsContainer) { throw 'unsafe' }
     while ($null -ne $item) {
@@ -17,15 +34,7 @@ try {
     $item = Get-Item -LiteralPath $request.path -Force
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'unsafe' }
     if ($request.operation -eq 'ancestor') {
-      $acl = Get-Acl -LiteralPath $request.path
-      $trusted = @($sid.Value, 'S-1-5-18', 'S-1-5-32-544')
-      if ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -notin $trusted) { throw 'unsafe' }
-      $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
-      if ($rules.Count -eq 0) { throw 'unsafe' }
-      $mutation = [System.Security.AccessControl.FileSystemRights]::Write -bor [System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor [System.Security.AccessControl.FileSystemRights]::TakeOwnership
-      foreach ($rule in $rules) {
-        if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin $trusted -and (($rule.FileSystemRights -band $mutation) -ne 0)) { throw 'unsafe' }
-      }
+      Assert-Ancestor $request.path $sid
       [Console]::Out.Write('{"ok":true}')
       exit 0
     }
