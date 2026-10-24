@@ -99,11 +99,11 @@ test('physical legacy key files are not migrated or ignored during new custody i
   await assert.rejects(()=>store.withLock(s=>s.keys(true)),{code:'unsafe_storage'});
   assert.equal(await readFile(join(store.directory,'sign.json'),'utf8'),'{"private_jwk":"legacy-marker"}');
 });
-test('unsupported platform secret backend fails closed without a plaintext key file',async t=>{
+test('absent native backend automatically persists a local key for a fresh vault',async t=>{
   const {root}=await fixture(t);const {createSecretProvider}=await import('../cli/storage.mjs');
   const p=createSecretProvider({directory:root,platform:'unsupported'});
-  await assert.rejects(()=>p.get({id:'a'.repeat(64),create:true}),{code:'secret_provider_unavailable'});
-  assert.deepEqual(await readdir(root),[]);
+  assert.equal((await p.get({id:'a'.repeat(64),create:true})).length,32);
+  assert.deepEqual(await readdir(root),['key.local.json']);
 });
 test('failed serialization leaves old authenticated vault and no temporary files',async t=>{
   const {store}=await fixture(t);await store.withLock(async s=>{await s.write('record',{value:'before'});const cycle={};cycle.self=cycle;await assert.rejects(()=>s.write('record',cycle));});

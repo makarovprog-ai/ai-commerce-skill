@@ -20,9 +20,16 @@ to a shell. Updating those pins is an explicit reviewed source change.
 
 No bank client secret, certificate bundle, model-provider API key, plaintext
 private key, or copied session belongs in this repository. Device keys and
-sessions are encrypted at rest through an explicit OS/key provider. There is no
-plaintext fallback. A user-chosen passphrase can enter only through a pre-opened
-descriptor; never use command-line secrets, logs, or chat. Protect the local
+sessions are encrypted at rest. If a native store is unavailable for NEW custody,
+the automatic fallback persists a random master key in key.local.json with
+owner-only filesystem access, separate from encrypted vault records. This master
+key is NOT encrypted: copying both it and the vault allows decryption. This is
+not equivalent to OS-backed key protection and does not resist same-user/root
+compromise. Never include custody files in source, diagnostic output or shared
+backups. Missing/corrupt/unsafe existing key material fails closed; no silent
+rekeying, migration or permissive chmod/ACL repair. Explicit passphrase mode
+remains available through a pre-opened descriptor; never use command-line
+secrets, logs, or chat. Protect the local
 account and encrypted vault backups: another process with the same OS-user
 authority or unlocked secure-store access is not a sandboxed adversary.
 

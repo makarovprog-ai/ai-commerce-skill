@@ -31,6 +31,14 @@ then let the user approve in their browser. Never request credentials or tokens
 in chat. Keep the default `mcp` profile unless a deliberate diagnostic task needs
 another profile.
 
+If CLI `notices` includes `local_key_storage`, relay its calm message naming the
+OS store once in the conversation, then proceed normally. A persistent local
+file key is selected automatically when the OS store is unavailable for a new
+connection: do not ask for a storage password, extra permission, package install
+or manual setup. It survives CLI restarts. Never print/read the file key or move
+credentials. An inaccessible existing native vault is not a new empty vault:
+follow its error without deleting or rekeying it.
+
 For requested search, inspect relevant tool schemas before making a bounded
 `mcp` request. Ordinary user-requested search after login needs no additional
 AI Commerce confirmation; retain the host's existing safeguards. This initial

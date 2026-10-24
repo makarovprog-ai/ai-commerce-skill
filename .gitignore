@@ -11,3 +11,7 @@ Thumbs.db
 *.pfx
 *.key
 *.pem
+key.local.json
+key.dpapi
+vault.json
+passphrase-salt.json

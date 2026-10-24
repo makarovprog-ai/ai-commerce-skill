@@ -23,14 +23,14 @@ function validateSession(state,keys,p) {
   if(p.scope==='mcp:invoke'&&(!uuid(state.family_id)||!uuid(state.packet_id)||state.dek_generation!==1||decode(state.wrapped_dek).length!==keys.wrap.asymmetricKeyDetails.modulusLength/8||decode(state.wrapping_context).length>4096))throw unsafe();
   return state;
 }
-const recordName=name=>typeof name==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(name)&&!['writer.lock','vault.json','passphrase-salt.json','key.dpapi','__proto__','constructor','prototype'].includes(name);
+const recordName=name=>typeof name==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(name)&&!['writer.lock','vault.json','passphrase-salt.json','key.dpapi','key.local.json','__proto__','constructor','prototype'].includes(name);
 
 export class Storage {
   constructor(directory=defaultDirectory(),profileName='mcp',options={}) {
     if(typeof directory!=='string'||!isAbsolute(directory)||resolve(directory)!==directory)throw unsafe();
     this.directory=directory;this.profile=profile(profileName);
     this.id=createHash('sha256').update(`ai-commerce-vault-v1\n${directory}\n${this.profile.client}`).digest('hex');
-    this.provider=options.secretProvider??createSecretProvider({directory,passphraseFd:options.passphraseFd});
+    this.provider=options.secretProvider??createSecretProvider({...options,directory});
   }
   async withLock(callback,{create=true}={}) {
     if(!await inspectDirectory(this.directory,create))return callback(null);

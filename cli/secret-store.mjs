@@ -6,11 +6,12 @@ import {constants,fstat} from 'node:fs';
 import {isAbsolute,resolve,parse,join,sep} from 'node:path';
 import {ClientError} from './errors.mjs';
 import {nativeRun,windowsNative,windowsExecutable,readPrivate,atomicPrivate,unsafe} from './platform-storage.mjs';
+import {localKey,localStorageNotice} from './local-key.mjs';
 
 const scrypt=promisify(scryptCallback);
 const unavailable=()=>new ClientError('secret_provider_unavailable');
 const validId=id=>typeof id==='string'&&/^[0-9a-f]{64}$/.test(id);
-function decodeKey(value) {if(!/^[0-9a-f]{64}$/.test(value))throw unavailable();return Buffer.from(value,'hex');}
+function decodeKey(value) {if(!/^[0-9a-f]{64}$/.test(value))throw unsafe();return Buffer.from(value,'hex');}
 
 async function directoryCapability(directory) {
   const failure={status:'unavailable',permissions:'not_checked'};
@@ -69,6 +70,10 @@ export async function inspectSecretProvider({directory,passphraseFd,secretProvid
   if(result.directory.status==='unavailable') {
     result.status='unavailable';result.next_action='Select a private, owned local state directory without links; do not change another application\'s data or weaken permissions.';
   }
+  if(passphraseFd===undefined&&!secretProvider&&result.directory.status!=='unavailable'){
+    result.fallback={backend:'local_file',automatic:true,persistent:true,notice:localStorageNotice(platform,'unavailable')};
+    if(result.status==='unavailable')result.next_action=result.fallback.notice.message;
+  }
   return result;
 }
 
@@ -80,12 +85,14 @@ async function passphrase(fd) {
     if(value.length<12||value.length>4096||value.includes(0)||value.includes(10)||value.includes(13))throw new ClientError('passphrase_required');return Buffer.from(value);
   }catch{throw new ClientError('passphrase_required');}finally{bytes?.fill(0);}
 }
-export function createSecretProvider({directory,passphraseFd,platform=process.platform,run=nativeRun}={}) {
+export function createSecretProvider({directory,passphraseFd,platform=process.platform,run=nativeRun,onNotice=()=>{}}={}) {
   let cached,cachedId;
   return {async get({id,create=false}) {
     if(!validId(id))throw unavailable();
     if(cached){if(cachedId!==id)throw unavailable();return Buffer.from(cached);}
+    if(passphraseFd===undefined){const local=await localKey(directory,id);if(local){cached=Buffer.from(local);cachedId=id;onNotice(localStorageNotice(platform));return local;}}
     let key;
+    try{
     if(passphraseFd!==undefined) {
       let data=await readPrivate(directory,'passphrase-salt.json'),salt;
       if(data){try{const obj=JSON.parse(data);if(obj.version!==1||Object.keys(obj).length!==2||!/^[0-9a-f]{64}$/.test(obj.salt))throw unsafe();salt=Buffer.from(obj.salt,'hex');}catch{throw unsafe();}}
@@ -113,6 +120,13 @@ export function createSecretProvider({directory,passphraseFd,platform=process.pl
       if(data){const result=await windowsNative({operation:'unprotect',id,value:data.toString('utf8')});key=decodeKey(result.value);}
       else{if(!create)throw unavailable();key=randomBytes(32);const result=await windowsNative({operation:'seal',id,value:key.toString('hex')});if(typeof result.value!=='string'||!/^[A-Za-z0-9+/]+=*$/.test(result.value))throw unavailable();await atomicPrivate(directory,'key.dpapi',Buffer.from(result.value));}
     }else throw unavailable();
+    }catch(error){
+      key?.fill(0);
+      if(passphraseFd!==undefined||error.code!=='secret_provider_unavailable'||!directory)throw error;
+      key=await localKey(directory,id,{create});
+      if(!key)throw error;
+      onNotice(localStorageNotice(platform,'unavailable'));
+    }
     if(!Buffer.isBuffer(key)||key.length!==32)throw unavailable();cached=Buffer.from(key);cachedId=id;return key;
   }};
 }

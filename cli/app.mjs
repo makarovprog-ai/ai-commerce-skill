@@ -60,7 +60,8 @@ function publicData(value) {
 const usage='AI Commerce (Node24)\nUsage: ai-commerce <login|status|session|refresh|logout|doctor|tools|mcp> [--profile mcp|diagnostic] [--state-dir PATH] [--passphrase-fd FD]\n       ai-commerce mcp [--input PATH|-]\nDefault profile: mcp. Login: open the link, compare four symbols, approve; no credential input.\nstatus and doctor are offline. MCP sends original input bytes once; ambiguous results are never retried.\nlogout removes the local session only, retains device keys, and does not revoke server access.\nHeadless fallback: --passphrase-fd accepts a pre-opened descriptor >=3, never a passphrase argument.';
 export async function main(args=process.argv.slice(2),dependencies={}) {
   const write=dependencies.write??(value=>process.stdout.write(value+'\n'));
-  const emit=value=>write(JSON.stringify({version:1,...value}));
+  const notices=new Map();
+  const emit=value=>write(JSON.stringify({version:1,...(notices.size?{notices:[...notices.values()]}:{}),...value}));
   let abort,stop;
   try {
     assertEnvironment();
@@ -75,9 +76,10 @@ export async function main(args=process.argv.slice(2),dependencies={}) {
     if(opts['--passphrase-fd']!==undefined&&(!/^[1-9][0-9]*$/.test(opts['--passphrase-fd'])||!Number.isSafeInteger(Number(opts['--passphrase-fd']))||Number(opts['--passphrase-fd'])<3))throw new ClientError('usage');
     abort=new AbortController();stop=()=>abort.abort();process.once('SIGINT',stop);process.once('SIGTERM',stop);
     const signal=dependencies.signal??abort.signal;
-    const storageOptions={...dependencies.storageOptions,...(opts['--passphrase-fd']!==undefined?{passphraseFd:Number(opts['--passphrase-fd'])}:{})};
+    const storageOptions={...dependencies.storageOptions,...(opts['--passphrase-fd']!==undefined?{passphraseFd:Number(opts['--passphrase-fd'])}:{}),onNotice:notice=>{notices.set(notice.code,notice);dependencies.storageOptions?.onNotice?.(notice);}};
     const client=new CommerceClient({...dependencies,storageOptions,profile,directory:opts['--state-dir'],signal,output:value=>emit({ok:true,event:'login_required',data:{verification_uri:value.verification_uri,user_code:value.user_code}})});
     const result=command==='mcp'?await client.mcp(await readRaw(opts['--input'],dependencies.input??process.stdin,signal)):await client[command]();
+    if(command==='doctor'&&result.storage.status==='unavailable'&&result.storage.fallback?.notice)notices.set(result.storage.fallback.notice.code,result.storage.fallback.notice);
     if(['mcp','tools'].includes(command)){
       if(result.status<200||result.status>=300){emit({ok:false,error:{code:'remote_error'}});return 1;}
       emit({ok:true,data:publicData(result.data)});

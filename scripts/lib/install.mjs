@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 export const SOURCE = 'ai-commerce-skill';
-const payloadFiles = ['package.json', 'bin/ai-commerce.mjs', ...['storage', 'secret-store', 'platform-storage', 'crypto', 'http', 'workflow', 'errors', 'app'].map(n => `cli/${n}.mjs`), 'cli/native/windows-storage.ps1', 'cli/native/read-passphrase.mjs'];
+const payloadFiles = ['package.json', 'bin/ai-commerce.mjs', ...['storage', 'secret-store', 'local-key', 'platform-storage', 'crypto', 'http', 'workflow', 'errors', 'app'].map(n => `cli/${n}.mjs`), 'cli/native/windows-storage.ps1', 'cli/native/read-passphrase.mjs'];
 const skillFiles = ['SKILL.md', 'references/setup.md', 'references/commands.md'];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 

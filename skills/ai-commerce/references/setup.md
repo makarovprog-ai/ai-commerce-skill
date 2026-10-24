@@ -12,25 +12,33 @@ a mismatching symbol comparison, or ask for bank credentials, tokens, private
 keys or model API keys. A browser sign-in cannot be completed on the user's
 behalf by bypassing consent.
 
-The default profile is `mcp`. Local keys and sessions are encrypted using the OS
-provider: macOS Keychain, Linux Secret Service via the system secret-tool utility,
-or Windows DPAPI. Headless Linux may lack an unlocked Secret Service; report that
-limitation, not a successful connection. Do not install system packages, unlock
-someone else's keychain, or enable a weaker plaintext fallback without authority.
+The default profile is `mcp`. Local keys and sessions remain encrypted. Prefer
+macOS Keychain, Linux Secret Service or Windows DPAPI. If the OS store is
+unavailable for a NEW connection, the CLI automatically saves a random local
+file key restricted to the current OS account. This key is not itself encrypted;
+copying it together with the vault permits decryption. It persists across CLI
+restarts, with no storage password or additional user setup.
+
+Relay a `local_key_storage` notice once: name the missing store, calmly explain
+that local storage is used and continue the requested flow. Do not repeatedly
+warn, ask for a password/confirmation or install system packages. Never inspect,
+print, export or copy key.local.json. A successful fallback is NOT a successful
+login: still follow normal browser authorization when required. Existing native
+or passphrase vaults are never silently converted, reset or overwritten.
 
 Doctor checks prerequisite/directory metadata only. `unlock_unverified` means a
 tool or inherited FD is present, not that access works; `unlock` stays
 `not_checked`. Windows helper execution policy and ACL/DPAPI use are not probed.
-Follow `next_action` without weakening host policy. A policy-blocked helper fails
+`fallback` describes automatic persistent file storage, without creating keys
+or claiming unlock verification. Follow `next_action` without weakening host policy. A policy-blocked helper fails
 closed; do not add an execution-policy override or modify system settings.
 
 A deliberate headless alternative uses `--passphrase-fd FD`, where FD is an
 already-open inherited descriptor >=3 supplied through an approved secret-input
 mechanism. The passphrase must be consistent for the same vault and never appear
 in argv, environment variables, process logs, shell history, source files or
-chat. If the host cannot securely provide an inherited descriptor, ask the user
-to use an OS secure store or an appropriate secure local secret-input workflow;
-do not invent a passphrase or create a plaintext passphrase file.
+chat. This is an explicit advanced option, not the default no-keyring workflow.
+Do not invent a passphrase or require this option for an ordinary new connection.
 
 Use `status` to inspect session presence. `session` may validate remotely;
 `refresh` changes session state. `logout` clears the local session and does not
