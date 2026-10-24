@@ -1,0 +1,14 @@
+{
+  "name": "ai-commerce-skill",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent skill and cross-platform CLI for AI Commerce",
+  "type": "module",
+  "engines": { "node": ">=24 <25" },
+  "bin": { "ai-commerce": "bin/ai-commerce.mjs" },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "check": "node scripts/verify.mjs"
+  },
+  "files": ["bin/", "cli/", "skills/", "scripts/", "README.md", "SECURITY.md"]
+}

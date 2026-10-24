@@ -1,0 +1,13 @@
+node_modules/
+coverage/
+dist/
+.superpowers/
+*.log
+.DS_Store
+Thumbs.db
+.env
+.env.*
+*.p12
+*.pfx
+*.key
+*.pem
