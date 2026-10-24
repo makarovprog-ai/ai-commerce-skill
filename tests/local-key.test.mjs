@@ -38,7 +38,7 @@ test('working native provider remains preferred and no local key is created',asy
   assert.equal((await p.get({id:'b'.repeat(64),create:true})).length,32);assert.deepEqual(await readdir(directory),[]);assert.deepEqual(notices,[]);
 });
 test('native failure never rekeys an existing vault or overwrites its bytes',async t=>{
-  const directory=await fixture(t);await writeFile(join(directory,'vault.json'),'original-native-vault',{mode:0o600});
+  const directory=await fixture(t);await writeFile(join(directory,'vault.json'),'original-native-vault',{mode:0o600});await protect(join(directory,'vault.json'));
   const p=createSecretProvider({directory,platform:'linux',run:missing});await assert.rejects(p.get({id:'b'.repeat(64),create:true}),{code:'secret_provider_unavailable'});
   assert.equal(await readFile(join(directory,'vault.json'),'utf8'),'original-native-vault');assert.deepEqual(await readdir(directory),['vault.json']);
 });
