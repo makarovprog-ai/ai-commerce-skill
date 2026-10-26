@@ -40,7 +40,11 @@ in argv, environment variables, process logs, shell history, source files or
 chat. This is an explicit advanced option, not the default no-keyring workflow.
 Do not invent a passphrase or require this option for an ordinary new connection.
 
-Use `status` to inspect session presence. `session` may validate remotely;
-`refresh` changes session state. `logout` clears the local session and does not
+Use `status` to inspect session presence, not bank validity. Default-profile
+`session` uses a harmless signed `tools/list` to check the provider gate;
+`refresh` rotates local access and performs the same check. A known disconnected
+device needs normal browser `login`; keep its existing custody and keys. A
+temporary `sberid_check_in_progress` response does not disconnect the device and
+must not trigger automatic retry or login. `logout` clears the local session and does not
 promise remote revocation. Do not delete a vault, rotate a key, remove a skill,
 or re-run an uncertain financial request as a troubleshooting shortcut.

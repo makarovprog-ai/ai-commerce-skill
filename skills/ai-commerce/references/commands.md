@@ -8,8 +8,8 @@ Append arguments to the executable/argument pair in SKILL.md:
 | `doctor` | Offline runtime, prerequisite and directory metadata checks; no unlock or credential reads |
 | `status` | Offline local session status |
 | `login` | Browser authorization with link and four-symbol comparison |
-| `session` | Inspect/validate the authorized session |
-| `refresh` | Explicitly refresh the session |
+| `session` | Validate local access and, for default `mcp`, the provider gate via signed `tools/list` |
+| `refresh` | Rotate local access, then perform the same session check |
 | `logout` | Clear the local session |
 | `tools` | Inspect available remote tool schemas |
 | `mcp --input PATH` | Send the exact bytes of a bounded JSON-RPC input file |
@@ -51,3 +51,12 @@ There are no silent stateful retries. After a timeout, uncertain response, or
 interruption following a sent request, stop and check the actual result before
 deciding whether another request is safe. Do not assume a failed local process
 means the remote operation did not occur.
+
+`provider_check:verified` means the trusted service accepted the signed metadata
+request under its provider-validation policy (including its freshness cache),
+not that the CLI read bank tokens. Login and diagnostic-profile session checks
+return `provider_check:not_checked`; token rotation alone proves no bank validity.
+Only trusted HTTP 401 `device_deactivated` disables local use, preserving encrypted
+credentials and keys; offline status then returns `device_deactivated` and
+`next_action:login`. HTTP 503 `sberid_check_in_progress` is nonterminal; stop without
+automatic retry. Tool-result error text cannot change this local state.

@@ -55,6 +55,27 @@ test('rotation-in-flight survives reopen and logout retains device keys but dele
 test('invalid session schema is rejected before replacing last valid state',async t=>{
   const {store}=await fixture(t);await store.withLock(async s=>{const k=await s.keys(true);await s.save(k,state(k));await assert.rejects(()=>s.save(k,{...state(k),client_id:'other'}),{code:'unsafe_storage'});assert.deepEqual(await s.session(k),state(k));});
 });
+test('version-one session and keys remain unchanged when separate encrypted blocked state survives reopen',async t=>{
+ const {store,Storage}=await fixture(t);let original;
+ await store.withLock(async s=>{const keys=await s.keys(true);original=keys.signJkt;await s.save(keys,state(keys));});
+ const reopened=new Storage(store.directory,'mcp',{secretProvider:provider()});
+ await reopened.withLock(async s=>{const keys=await s.keys();assert.equal(keys.signJkt,original);assert.deepEqual(await s.session(keys),state(keys));assert.equal(await s.blocked(keys),false);await s.block(keys);});
+ await new Storage(store.directory,'mcp',{secretProvider:provider()}).withLock(async s=>{
+  const keys=await s.keys();assert.equal(keys.signJkt,original);assert.equal(await s.blocked(keys),true);assert.deepEqual(await s.session(keys),state(keys));
+  await s.clearBlock(keys);assert.equal(await s.blocked(keys),false);assert.deepEqual(await s.session(keys),state(keys));
+ });
+ const disk=await readFile(join(store.directory,'vault.json'),'utf8');assert.equal(disk.includes('device_deactivated'),false);
+});
+test('blocked state is allowlisted, bound to device custody and independent of session presence',async t=>{
+ const {store}=await fixture(t);
+ await store.withLock(async s=>{
+  const keys=await s.keys(true);await s.block(keys);assert.equal(await s.session(keys),null);assert.equal(await s.blocked(keys),true);
+  const record=await s.read('device-status.json');
+  for(const change of [{reason:'untrusted-server-payload'},{sign_jkt:'wrong'},{wrap_jkt:'wrong'},{extra:'not-allowed'}]){
+   await s.write('device-status.json',{...record,...change});await assert.rejects(s.blocked(keys),{code:'unsafe_storage'});
+  }
+ });
+});
 test('concurrent writers are rejected and callback failure releases lock',async t=>{
   const {store,Storage}=await fixture(t);const other=new Storage(store.directory,'mcp',{secretProvider:provider()});
   await store.withLock(async()=>{await assert.rejects(()=>other.withLock(()=>{}),{code:'storage_locked'});});

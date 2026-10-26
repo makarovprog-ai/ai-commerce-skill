@@ -8,10 +8,11 @@ export function syntheticProtocol(){
  const keys=generateKeys(),issuer=generateKeyPairSync('rsa',{modulusLength:2048});
  const release=generateKeyPairSync('rsa',{modulusLength:3072});
  const id='00000000-0000-4000-8000-000000000001',device='00000000-0000-4000-8000-000000000002',grant='00000000-0000-4000-8000-000000000003',packet='00000000-0000-4000-8000-000000000004',family='00000000-0000-4000-8000-000000000005';
- const requestId='r'.repeat(43),code='c'.repeat(43),dek=randomBytes(32);let state,queue=Promise.resolve(),failRefresh=false,tamperTranscript=false,denied=false;
+ const requestId='r'.repeat(43),code='c'.repeat(43),dek=randomBytes(32);let state,blocked=false,queue=Promise.resolve(),failRefresh=false,tamperTranscript=false,denied=false;
  const store={
   withLock(callback){const p=queue.then(()=>callback(store));queue=p.catch(()=>{});return p;},
   async keys(){return keys;},async session(){return state?structuredClone(state):null;},async save(_,next){state=structuredClone(next);},async logout(){state=null;},
+  async block(){blocked=true;},async blocked(){return blocked;},async clearBlock(){blocked=false;},
  };
  const context=Buffer.from(['auth-sberid-v1',`packet_id=${packet}`,`user_id=${id}`,`device_id=${device}`,'environment=synthetic',`wrap_jkt=${keys.wrapJkt}`,'dek_generation=1'].join('\n'));
  const wrapped=b64(publicEncrypt({key:createPublicKey(keys.wrap),oaepHash:'sha256',oaepLabel:context},dek));
@@ -52,5 +53,5 @@ export function syntheticProtocol(){
   if(url==='https://api.sber-ai-pay.ru/mcp')return {status:200,data:{jsonrpc:'2.0',id:1,result:{tools:[]}}};
   throw Error('unexpected synthetic endpoint');
  }
- return {store,keys,transport,now:()=>clock,sleep:async ms=>{clock+=ms/1000;},output:p=>progress.push(p),calls,progress,advance:s=>clock+=s,get state(){return state;},get refreshes(){return refreshes;},failRefresh:()=>failRefresh=true,tamper:()=>tamperTranscript=true,deny:()=>denied=true};
+ return {store,keys,transport,now:()=>clock,sleep:async ms=>{clock+=ms/1000;},output:p=>progress.push(p),calls,progress,advance:s=>clock+=s,get state(){return state;},get blocked(){return blocked;},get refreshes(){return refreshes;},failRefresh:()=>failRefresh=true,tamper:()=>tamperTranscript=true,deny:()=>denied=true};
 }

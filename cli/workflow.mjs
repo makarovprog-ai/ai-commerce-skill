@@ -2,7 +2,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {BASE,REDIRECT,profile,b64,decode,random,hash,sign,unwrap,dpop,verifyToken,mcpRequest} from './crypto.mjs';
 import {Storage,defaultDirectory} from './storage.mjs';
 import {join} from 'node:path';
-import {ClientError} from './errors.mjs';
+import {ClientError,publicError} from './errors.mjs';
 import {requestJSON,assertEnvironment} from './http.mjs';
 import {inspectSecretProvider} from './secret-store.mjs';
 const require=(value)=>{if(!value)throw new ClientError('invalid_response');};
@@ -10,6 +10,14 @@ const opaque=v=>typeof v==='string'&&/^[A-Za-z0-9_-]{43}$/.test(v);
 const uuid=v=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v);
 const fields=(o,names)=>{require(o&&typeof o==='object'&&!Array.isArray(o)&&Object.keys(o).length===names.length&&names.every(n=>Object.hasOwn(o,n)));};
 const terminal=new Set(['denied','failed','expired','completed','request_unavailable']);
+const metadataBody=()=>Buffer.from(JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list',params:{}}));
+// Called only for HTTP responses from the fixed Auth/MCP transport targets.
+// Never inspect successful business payloads or use remote message text.
+function serviceError(response,field){
+  const code=response.data?.[field];
+  if(response.status===401&&code==='device_deactivated')throw new ClientError(code);
+  if(response.status===503&&code==='sberid_check_in_progress')throw new ClientError(code);
+}
 // A remote tool must not be able to reflect local custody material into output.
 function publicMcpResponse(response,state){
   const secrets=['access_token','refresh_token','wrapped_dek','wrapping_context'].map(name=>state[name]).filter(value=>typeof value==='string'&&value.length);
@@ -21,15 +29,27 @@ export class CommerceClient{
     this.profile=profile(profileName);this.directory=directory??join(defaultDirectory(),profileName);this.storageOptions=storageOptions??{};this.store=store??new Storage(this.directory,profileName,storageOptions);this.transport=transport;this.sleep=sleep;this.now=now;this.output=output;this.signal=signal;
   }
   check(){assertEnvironment();if(this.signal?.aborted)throw new ClientError('cancelled');}
-  async request(path,keys,method='GET',body,accessToken){this.check();const url=BASE+path;const response=await this.transport(url,{method,signal:this.signal,headers:{...(keys?{DPoP:dpop(keys,method,url,accessToken,this.now())}:{}),...(body?{'content-type':typeof body==='string'?'application/x-www-form-urlencoded':'application/json'}:{}),...(accessToken?{authorization:`DPoP ${accessToken}`}:{})},body:body?typeof body==='string'?body:JSON.stringify(body):undefined});this.check();return response;}
+  async request(path,keys,method='GET',body,accessToken){this.check();const url=BASE+path;const response=await this.transport(url,{method,signal:this.signal,headers:{...(keys?{DPoP:dpop(keys,method,url,accessToken,this.now())}:{}),...(body?{'content-type':typeof body==='string'?'application/x-www-form-urlencoded':'application/json'}:{}),...(accessToken?{authorization:`DPoP ${accessToken}`}:{})},body:body?typeof body==='string'?body:JSON.stringify(body):undefined});this.check();serviceError(response,'code');return response;}
+  async withCustody(callback,options){
+    return this.store.withLock(async store=>{
+      try{return await callback(store);}
+      catch(error){
+        if(error instanceof ClientError&&error.code==='device_deactivated'&&store){
+          const keys=await store.keys(false);if(keys)await store.block(keys);
+        }
+        throw error;
+      }
+    },options);
+  }
   async pause(seconds){this.check();try{await this.sleep(seconds*1000,undefined,{signal:this.signal});}catch(e){this.check();throw e;}this.check();}
   async login() {
-    return this.store.withLock(async store=>{
+    return this.withCustody(async store=>{
       this.check();
       const keys=await store.keys(true);
       // Validate custody before any signed transport. Authentic expired state or
       // an in-flight marker permits explicit new login, never old-RT reuse.
       await store.session(keys);
+      await store.blocked(keys);
       const state=random();
       const verifier=random();
       const challenge=hash(verifier);
@@ -118,13 +138,15 @@ export class CommerceClient{
           grant_type:'authorization_code',client_id:this.profile.client,redirect_uri:REDIRECT,
           code:ready.code,code_verifier:verifier,
         }).toString());
-      } catch {
+      } catch(error) {
+        if(error instanceof ClientError&&['device_deactivated','sberid_check_in_progress'].includes(error.code))throw error;
         throw new ClientError('login_required');
       }
       if(token.status!==200)throw new ClientError('login_required');
       const session=await this.validate(token.data,keys);
       await store.save(keys,session);
-      return this.protectedSession(keys,session,store);
+      const result=await this.protectedSession(keys,session,store);
+      await store.clearBlock(keys);return result;
     });
   }
 
@@ -162,19 +184,63 @@ export class CommerceClient{
   async load(store) {
     const keys=await store?.keys(false);
     if(!keys)throw new ClientError('login_required');
+    if(await store.blocked(keys))throw new ClientError('device_deactivated');
     const state=await store.session(keys);
     if(!state || state.rotation_in_flight)throw new ClientError('login_required');
     require(state.version===1 && state.client_id===this.profile.client && state.sign_jkt===keys.signJkt
       && state.wrap_jkt===keys.wrapJkt && opaque(state.refresh_token));
     return {keys,state};
   }
-  async protectedSession(keys,state,store){const mcp=this.profile.scope==='mcp:invoke';const r=await this.request(mcp?'/mcp-session':'/session',keys,'GET',undefined,state.access_token);require(r.status===200);fields(r.data,['status','user_id','device_id','grant_id',...(mcp?['family_id','packet_id','wrapped_dek','wrapping_context','dek_generation']:[])]);require(r.data.status==='active'&&['user_id','device_id','grant_id',...(mcp?['family_id','packet_id','wrapped_dek','wrapping_context','dek_generation']:[])].every(k=>r.data[k]===state[k]));if(mcp&&store)await store.save(keys,state);return {status:'active',user_id:state.user_id,device_id:state.device_id,grant_id:state.grant_id};}
-  async rotate(store,keys,state){await store.save(keys,{...state,rotation_in_flight:true});let r;try{r=await this.request('/token',keys,'POST',new URLSearchParams({grant_type:'refresh_token',client_id:this.profile.client,refresh_token:state.refresh_token}).toString());if(r.status!==200)throw Error();const next=await this.validate(r.data,keys);require(['user_id','device_id','grant_id',...(this.profile.scope==='mcp:invoke'?['family_id','packet_id','wrapped_dek','wrapping_context','dek_generation']:[])].every(k=>next[k]===state[k]));await store.save(keys,next);return next;}catch{throw new ClientError('login_required');}}
-  async session(){return this.store.withLock(async store=>{let {keys,state}=await this.load(store);if(state.expires_at<=this.now()+10)state=await this.rotate(store,keys,state);return this.protectedSession(keys,state,store);},{create:false});}
-  async refresh(){return this.store.withLock(async store=>{const {keys,state}=await this.load(store);return this.protectedSession(keys,await this.rotate(store,keys,state),store);},{create:false});}
-  async mcp(body){require(this.profile.scope==='mcp:invoke'&&Buffer.isBuffer(body)&&body.length<=262144);return this.store.withLock(async store=>{let {keys,state}=await this.load(store);if(state.expires_at<=this.now()+10)state=await this.rotate(store,keys,state);await this.protectedSession(keys,state,store);const jwks=await this.request('/release-jwks');require(jwks.status===200);this.check();const request=mcpRequest(keys,state,jwks.data,body,this.now());const r=await this.transport(this.profile.audience,{...request,signal:this.signal});this.check();return publicMcpResponse(r,state);},{create:false});}
+  async protectedSession(keys,state,store){
+    const mcp=this.profile.scope==='mcp:invoke';
+    const r=await this.request(mcp?'/mcp-session':'/session',keys,'GET',undefined,state.access_token);
+    require(r.status===200);
+    fields(r.data,['status','user_id','device_id','grant_id',...(mcp?['family_id','packet_id','wrapped_dek','wrapping_context','dek_generation']:[])]);
+    require(r.data.status==='active'&&['user_id','device_id','grant_id',...(mcp?['family_id','packet_id','wrapped_dek','wrapping_context','dek_generation']:[])].every(k=>r.data[k]===state[k]));
+    if(mcp&&store)await store.save(keys,state);
+    return {status:'active',provider_check:'not_checked',user_id:state.user_id,device_id:state.device_id,grant_id:state.grant_id};
+  }
+  async rotate(store,keys,state){
+    await store.save(keys,{...state,rotation_in_flight:true});
+    let tokenReceived=false;
+    try{
+      const r=await this.request('/token',keys,'POST',new URLSearchParams({grant_type:'refresh_token',client_id:this.profile.client,refresh_token:state.refresh_token}).toString());
+      tokenReceived=true;
+      if(r.status!==200)throw new ClientError('login_required');
+      const next=await this.validate(r.data,keys);
+      require(['user_id','device_id','grant_id',...(this.profile.scope==='mcp:invoke'?['family_id','packet_id','wrapped_dek','wrapping_context','dek_generation']:[])].every(k=>next[k]===state[k]));
+      await store.save(keys,next);return next;
+    }catch(error){
+      if(error instanceof ClientError&&error.code==='device_deactivated')throw error;
+      if(error instanceof ClientError&&error.code==='sberid_check_in_progress'){
+        // A definitive pre-rotation busy response is not an ambiguous rotation.
+        // A failure during later JWT validation must retain the one-use marker.
+        if(!tokenReceived)await store.save(keys,state);
+        throw error;
+      }
+      throw new ClientError('login_required');
+    }
+  }
+  async sendMcp(keys,state,body){
+    const jwks=await this.request('/release-jwks');require(jwks.status===200);this.check();
+    const request=mcpRequest(keys,state,jwks.data,body,this.now());
+    const response=await this.transport(this.profile.audience,{...request,signal:this.signal});this.check();
+    serviceError(response,'error');return publicMcpResponse(response,state);
+  }
+  async checkedSession(keys,state,store){
+    const result=await this.protectedSession(keys,state,store);
+    if(this.profile.scope!=='mcp:invoke')return result;
+    const response=await this.sendMcp(keys,state,metadataBody());
+    if(response.status!==200)throw new ClientError('remote_error');
+    return {...result,provider_check:'verified'};
+  }
+  // Reserve two 15s Auth reads, the 40s O verification budget and overhead.
+  // This is an early rotation, never an automatic retry of a failed request.
+  async session(){return this.withCustody(async store=>{let {keys,state}=await this.load(store);if(state.expires_at<=this.now()+90)state=await this.rotate(store,keys,state);return this.checkedSession(keys,state,store);},{create:false});}
+  async refresh(){return this.withCustody(async store=>{const {keys,state}=await this.load(store);return this.checkedSession(keys,await this.rotate(store,keys,state),store);},{create:false});}
+  async mcp(body){require(this.profile.scope==='mcp:invoke'&&Buffer.isBuffer(body)&&body.length<=262144);return this.withCustody(async store=>{let {keys,state}=await this.load(store);if(state.expires_at<=this.now()+90)state=await this.rotate(store,keys,state);await this.protectedSession(keys,state,store);return this.sendMcp(keys,state,body);},{create:false});}
   async logout(){this.check();return this.store.withLock(async store=>{await store?.logout();return {status:'signed_out'};},{create:false});}
   async doctor(){this.check();return {runtime:{node:process.versions.node,supported:Number(process.versions.node.split('.')[0])===24},profile:this.profile.scope==='mcp:invoke'?'mcp':'diagnostic',storage:await inspectSecretProvider({...this.storageOptions,directory:this.directory}),network:'not_checked'};}
-  async tools(){return this.mcp(Buffer.from(JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list',params:{}})));}
-  async status(){this.check();return this.store.withLock(async store=>{if(!store)return {status:'signed_out'};const keys=await store.keys(false);if(!keys)return {status:'signed_out'};const s=await store.session(keys);if(!s)return {status:'signed_out'};return {status:s.rotation_in_flight?'login_required':s.expires_at<=this.now()?'expired':'stored',...(s.rotation_in_flight?{}:{user_id:s.user_id,device_id:s.device_id,grant_id:s.grant_id})};},{create:false});}
+  async tools(){return this.mcp(metadataBody());}
+  async status(){this.check();return this.store.withLock(async store=>{if(!store)return {status:'signed_out'};const keys=await store.keys(false);if(!keys)return {status:'signed_out'};if(await store.blocked(keys)){const {code,...action}=publicError(new ClientError('device_deactivated'));return {status:code,...action};}const s=await store.session(keys);if(!s)return {status:'signed_out'};return {status:s.rotation_in_flight?'login_required':s.expires_at<=this.now()?'expired':'stored',...(s.rotation_in_flight?{}:{user_id:s.user_id,device_id:s.device_id,grant_id:s.grant_id})};},{create:false});}
 }

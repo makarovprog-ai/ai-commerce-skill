@@ -31,6 +31,14 @@ then let the user approve in their browser. Never request credentials or tokens
 in chat. Keep the default `mcp` profile unless a deliberate diagnostic task needs
 another profile.
 
+On `device_deactivated`, relay the fixed message: «Не удалось подтвердить вход
+через Сбер ID. Это устройство отключено. Войдите заново.» Use normal explicit
+browser `login` when reconnecting is requested or needed for the task; never
+silently retry, reauthenticate, delete custody or regenerate device keys.
+`sberid_check_in_progress` is temporary: stop this attempt without retrying or
+treating it as disconnection. Offline `status` is not evidence of bank validity;
+default-profile `session` checks through a signed harmless remote `tools/list`.
+
 If CLI `notices` includes `local_key_storage`, relay its calm message naming the
 OS store once in the conversation, then proceed normally. A persistent local
 file key is selected automatically when the OS store is unavailable for a new

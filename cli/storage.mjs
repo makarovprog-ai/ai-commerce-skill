@@ -66,5 +66,18 @@ export class Storage {
   }
   async session(keys) {try{const state=await this.read('session.json');return state?validateSession(state,keys,this.profile):null;}catch(error){if(error instanceof ClientError)throw error;throw unsafe();}}
   async save(keys,state) {try{validateSession(state,keys,this.profile);}catch{throw unsafe();}await this.write('session.json',state);}
+  async blocked(keys) {
+    const state=await this.read('device-status.json');if(state===null)return false;
+    if(!exact(state,['version','reason','sign_jkt','wrap_jkt'])||state.version!==1||state.reason!=='device_deactivated'||state.sign_jkt!==keys.signJkt||state.wrap_jkt!==keys.wrapJkt)throw unsafe();
+    return true;
+  }
+  async block(keys) {
+    if(await this.blocked(keys))return;
+    await this.write('device-status.json',{version:1,reason:'device_deactivated',sign_jkt:keys.signJkt,wrap_jkt:keys.wrapJkt});
+  }
+  async clearBlock(keys) {
+    if(!await this.blocked(keys))return;
+    const data=await this.vault();delete data.records['device-status.json'];await this.persist(data);
+  }
   async logout() {const data=await this.vault();if(Object.hasOwn(data.records,'session.json')){delete data.records['session.json'];await this.persist(data);}}
 }
