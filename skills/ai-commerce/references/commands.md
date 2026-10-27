@@ -20,9 +20,16 @@ Shared options: `--profile mcp|diagnostic`, `--state-dir PATH`, and
 CLI at an existing unrelated application's data directory. Use an approved
 private temporary input file or stdin for MCP requests, not credentials in
 arguments. Construct only the intended tool call according to its schema.
-This release permits login and search only; do not call OWN checkout, order or
-payment handlers even if discoverable. A user-requested search after login needs
-no additional AI Commerce confirmation, subject to existing host safeguards.
+Login, search, checkout, order creation and payments use the same signed `mcp`
+transport. Inspect `tools` and the relevant input schemas; do not invent tool
+names or assume every server/session enables every operation. Respect server
+denials without trying another identity or bypass. A user-requested search after
+login needs no additional AI Commerce confirmation, subject to host safeguards.
+For order creation or payment, establish the user's authorization and concrete
+purchase terms first; a successful login is not financial consent. Use a tool's
+documented idempotency mechanism where available. After an ambiguous stateful
+failure, check the order/payment outcome before any new attempt; if no safe
+status check is available, report the uncertainty and stop.
 
 Doctor returns `data.storage.backend`, prerequisite `present`/`unavailable`
 statuses, `directory` metadata and `next_action`. Storage `status` is

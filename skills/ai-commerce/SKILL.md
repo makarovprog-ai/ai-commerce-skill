@@ -1,6 +1,6 @@
 ---
 name: ai-commerce
-description: Connect an AI Commerce browser-authorized session, inspect search tools, and search for a user's requested item. Use for AI Commerce login and search, not checkout, orders, payments advice or unrelated browser automation.
+description: Use AI Commerce through its CLI for browser login, product search, checkout, order creation and payments requested by the user. Not for general financial advice or unrelated browser automation.
 ---
 
 # AI Commerce
@@ -47,12 +47,16 @@ or manual setup. It survives CLI restarts. Never print/read the file key or move
 credentials. An inaccessible existing native vault is not a new empty vault:
 follow its error without deleting or rekeying it.
 
-For requested search, inspect relevant tool schemas before making a bounded
-`mcp` request. Ordinary user-requested search after login needs no additional
-AI Commerce confirmation; retain the host's existing safeguards. This initial
-release supports login and search only: OWN checkout, order creation and payments
-are unavailable even if a remote catalog lists those handlers. Session consent
-is not financial consent. The CLI does not classify operations or grant blanket
+Login, search, checkout, order creation and payments are supported skill
+workflows. Inspect the relevant remote tool schemas before making a bounded
+`mcp` request; use only the tools and operations actually enabled for this session
+and server. A missing tool or server denial is not permission to bypass a gate.
+Ordinary user-requested search after login needs no additional AI Commerce
+confirmation. Before creating an order or making a payment, ensure the user's
+request authorizes that action and its concrete terms (items, quantities, total,
+delivery and payment method as applicable); clarify missing material terms.
+Browser login alone is not purchase or payment authorization. Retain the host's
+existing safeguards. The CLI does not classify operations or grant blanket
 permission. No host policy, sandbox, execution-policy, TLS or permission bypass
 is part of this skill.
 
