@@ -183,10 +183,11 @@ export class CommerceClient{
 
   async load(store) {
     const keys=await store?.keys(false);
-    if(!keys)throw new ClientError('login_required');
+    if(!keys)throw new ClientError('login_required','session_missing');
     if(await store.blocked(keys))throw new ClientError('device_deactivated');
     const state=await store.session(keys);
-    if(!state || state.rotation_in_flight)throw new ClientError('login_required');
+    if(!state)throw new ClientError('login_required','session_missing');
+    if(state.rotation_in_flight)throw new ClientError('login_required','refresh_outcome_unknown');
     require(state.version===1 && state.client_id===this.profile.client && state.sign_jkt===keys.signJkt
       && state.wrap_jkt===keys.wrapJkt && opaque(state.refresh_token));
     return {keys,state};
@@ -218,7 +219,7 @@ export class CommerceClient{
         if(!tokenReceived)await store.save(keys,state);
         throw error;
       }
-      throw new ClientError('login_required');
+      throw new ClientError('login_required','refresh_outcome_unknown');
     }
   }
   async sendMcp(keys,state,body){
@@ -242,5 +243,5 @@ export class CommerceClient{
   async logout(){this.check();return this.store.withLock(async store=>{await store?.logout();return {status:'signed_out'};},{create:false});}
   async doctor(){this.check();return {runtime:{node:process.versions.node,supported:Number(process.versions.node.split('.')[0])===24},profile:this.profile.scope==='mcp:invoke'?'mcp':'diagnostic',storage:await inspectSecretProvider({...this.storageOptions,directory:this.directory}),network:'not_checked'};}
   async tools(){return this.mcp(metadataBody());}
-  async status(){this.check();return this.store.withLock(async store=>{if(!store)return {status:'signed_out'};const keys=await store.keys(false);if(!keys)return {status:'signed_out'};if(await store.blocked(keys)){const {code,...action}=publicError(new ClientError('device_deactivated'));return {status:code,...action};}const s=await store.session(keys);if(!s)return {status:'signed_out'};return {status:s.rotation_in_flight?'login_required':s.expires_at<=this.now()?'expired':'stored',...(s.rotation_in_flight?{}:{user_id:s.user_id,device_id:s.device_id,grant_id:s.grant_id})};},{create:false});}
+  async status(){this.check();return this.store.withLock(async store=>{if(!store)return {status:'signed_out'};const keys=await store.keys(false);if(!keys)return {status:'signed_out'};if(await store.blocked(keys)){const {code,...action}=publicError(new ClientError('device_deactivated'));return {status:code,...action};}const s=await store.session(keys);if(!s)return {status:'signed_out'};return {status:s.rotation_in_flight?'login_required':s.expires_at<=this.now()?'expired':'stored',...(s.rotation_in_flight?{reason:'refresh_outcome_unknown',next_action:'login'}:{user_id:s.user_id,device_id:s.device_id,grant_id:s.grant_id})};},{create:false});}
 }

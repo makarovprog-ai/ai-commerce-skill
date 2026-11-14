@@ -41,6 +41,17 @@ chat. This is an explicit advanced option, not the default no-keyring workflow.
 Do not invent a passphrase or require this option for an ordinary new connection.
 
 Use `status` to inspect session presence, not bank validity. Default-profile
+`status:expired` refers to the local AI Commerce access token only. Run the
+requested ordinary command first: tools/mcp/session automatically refresh access
+when less than 90 seconds remain, before the business request is sent. Do not
+announce an expired Sber ID session or request login just from that status.
+`login_required` with `reason:session_missing` requires normal browser login;
+`reason:refresh_outcome_unknown` means renewal could not be completed safely,
+not proof of bank revocation. Keep custody/rotation markers and reconnect through
+normal login; never retry the old refresh token. A network error outside rotation
+does not by itself require login.
+
+Default-profile
 `session` uses a harmless signed `tools/list` to check the provider gate;
 `refresh` rotates local access and performs the same check. A known disconnected
 device needs normal browser `login`; keep its existing custody and keys. A

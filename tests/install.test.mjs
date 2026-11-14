@@ -20,15 +20,16 @@ async function sandbox(t) {
   });
   const source = path.join(base, 'source tree');
   const home = path.join(base, 'fresh home');
-  for (const dir of ['bin', 'cli/native', 'skills/ai-commerce/references']) await mkdir(path.join(source, dir), { recursive: true });
+  for (const dir of ['bin', 'cli/native', 'skills/ai-commerce/references','scripts/lib']) await mkdir(path.join(source, dir), { recursive: true });
   await mkdir(home);
   await writeFile(path.join(source, 'package.json'), JSON.stringify({ name: 'ai-commerce-skill', version: '0.1.0', type: 'module' }));
   await writeFile(path.join(source, 'bin/ai-commerce.mjs'), 'import {readFileSync} from "node:fs";\nconst args=process.argv.slice(2); const fd=args.indexOf("--passphrase-fd");\nconsole.log(JSON.stringify({ok:true,data:{args,...(fd>=0?{received:readFileSync(Number(args[fd+1]),"utf8")==="fixture-only-passphrase"}:{})}}));\n');
-  for (const name of ['storage', 'secret-store', 'local-key', 'platform-storage', 'crypto', 'http', 'workflow', 'errors', 'app']) await writeFile(path.join(source, `cli/${name}.mjs`), 'export {};\n');
+  for (const name of ['storage', 'secret-store', 'local-key', 'platform-storage', 'crypto', 'http', 'workflow', 'errors', 'app','tool-discovery','updates']) await writeFile(path.join(source, `cli/${name}.mjs`), 'export {};\n');
+  for(const name of ['install','update','release'])await writeFile(path.join(source,`scripts/lib/${name}.mjs`),'export {};\n');
   await writeFile(path.join(source, 'cli/native/windows-storage.ps1'), '# fixture helper\n');
   await writeFile(path.join(source, 'cli/native/read-passphrase.mjs'), 'export {};\n');
   await writeFile(path.join(source, 'skills/ai-commerce/SKILL.md'), '---\nname: ai-commerce\ndescription: Use AI Commerce\n---\nRun {{AI_COMMERCE_COMMAND}}\n');
-  for (const name of ['setup', 'commands']) await writeFile(path.join(source, `skills/ai-commerce/references/${name}.md`), `# ${name}\n`);
+  for (const name of ['setup', 'commands','search','checkout']) await writeFile(path.join(source, `skills/ai-commerce/references/${name}.md`), `# ${name}\n`);
   await writeFile(path.join(source, 'secret.txt'), 'DO NOT COPY');
   return { base, source, home };
 }

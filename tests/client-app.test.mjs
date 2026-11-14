@@ -17,9 +17,19 @@ test('help and doctor are versioned offline output; malformed argv never accesse
  const values=[];const dependencies={write:value=>values.push(JSON.parse(value)),transport:()=>{throw Error('network used');}};
  assert.equal(await main(['--help'],dependencies),0);assert.equal(values[0].version,1);assert.equal(values[0].ok,true);assert.match(values[0].data.usage,/ai-commerce/);
  assert.equal(await main(['doctor'],dependencies),0);assert.equal(values[1].data.network,'not_checked');assert.equal(values[1].data.runtime.node,process.versions.node);
- assert.equal(await main(['--version'],dependencies),0);assert.equal(values.at(-1).data.version,'0.3.0');
+ assert.equal(await main(['--version'],dependencies),0);assert.equal(values.at(-1).data.version,'0.4.0');
  for(const args of [['mcp','--url','https://wrong.test'],['login','--profile','bad'],['mcp','--input','-','--input','-'],['status','--access-token','secret'],['login','--passphrase-fd','0'],['login','--passphrase-fd','sensitive']]){assert.equal(await main(args,dependencies),1);assert.equal(values.at(-1).error.code,'usage');}
  assert.equal(await main(['doctor','--passphrase-fd','3'],dependencies),0);
+});
+test('failed update checks are invisible to shopping but explicit installation failures are reported',async()=>{
+ const f=syntheticProtocol();await main(['login'],{...f,write:()=>{}});const values=[];let checks=0,installs=0;
+ const updates={async check(){checks++;throw Error('secret remote detail');},async install(){installs++;throw Error('secret credential');}};
+ const deps={...f,updates,write:v=>values.push(JSON.parse(v))};
+ assert.equal(await main(['tools'],deps),0);assert.equal(values.at(-1).ok,true);assert.equal(values.at(-1).notices,undefined);assert.equal(checks,1);
+ const before=f.calls.length;assert.equal(await main(['update','check'],deps),0);assert.deepEqual(values.at(-1),{version:1,ok:true,data:{status:'unavailable'}});
+ assert.equal(await main(['update','install'],deps),1);assert.equal(values.at(-1).error.code,'update_failed');assert.equal(installs,1);assert.equal(f.calls.length,before);
+ assert.equal(await main(['status'],deps),0);assert.equal(checks,2);
+ assert.ok(!JSON.stringify(values).includes('secret remote'));assert.ok(!JSON.stringify(values).includes('secret credential'));
 });
 test('CLI login progress, tools and MCP output never expose protocol secrets',async()=>{
  const f=syntheticProtocol(),values=[];const deps={...f,write:v=>values.push(JSON.parse(v))};

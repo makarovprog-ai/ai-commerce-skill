@@ -17,6 +17,14 @@ test('ambiguous rotation durably requires login and cannot retry old refresh tok
  const f=syntheticProtocol(),client=new CommerceClient(f);await client.login();f.failRefresh();await assert.rejects(client.refresh(),{code:'login_required'});assert.equal(f.state.rotation_in_flight,true);
  await assert.rejects(client.refresh(),{code:'login_required'});await assert.rejects(client.mcp(Buffer.from('{}')),{code:'login_required'});assert.equal(f.refreshes,1);
 });
+test('missing state and ambiguous refresh have different safe recovery reasons',async()=>{
+ const f=syntheticProtocol(),client=new CommerceClient(f);
+ await assert.rejects(client.tools(),{code:'login_required',reason:'session_missing'});
+ await client.login();f.failRefresh();
+ await assert.rejects(client.refresh(),{code:'login_required',reason:'refresh_outcome_unknown'});
+ await assert.rejects(client.tools(),{code:'login_required',reason:'refresh_outcome_unknown'});
+ assert.equal((await client.status()).reason,'refresh_outcome_unknown');assert.equal(f.refreshes,1);
+});
 test('tampered enrollment and user denial cannot escalate into browser/password fallback',async()=>{
  const f=syntheticProtocol();f.tamper();await assert.rejects(new CommerceClient(f).login(),{code:'invalid_response'});assert.equal(f.calls.length,1);assert.equal(f.progress.length,0);
  const denied=syntheticProtocol();denied.deny();await assert.rejects(new CommerceClient(denied).login(),{code:'denied'});assert.equal(denied.calls.filter(c=>c.url.endsWith('/token')).length,0);

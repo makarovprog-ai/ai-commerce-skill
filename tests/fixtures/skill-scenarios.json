@@ -1,0 +1,15 @@
+[
+ {"id":"expired-local-access","user":"Найди молоко","input":{"status":"expired","toolsOutcome":"success"},"expected":{"browserLogins":0,"manualRefreshLoops":0,"claimsExpiredSberId":false}},
+ {"id":"kuper-capability","user":"Купи эту кружку Купера","input":{"aggregator_name":"Купер","allowed_actions":["checkout"],"product_url":"https://shop.example.test/product/mug"},"expected":{"cartCheckoutOrderPaymentCalls":0,"provideProductLink":true,"automaticReplacement":false}},
+ {"id":"mm-without-code","input":{"aggregator_name":"Мегамаркет","routing":"consistent","aggregator_code":null},"expected":{"mayOfferCheckout":true}},
+ {"id":"conflicting-source","input":{"aggregator_name":"Мегамаркет","aggregator_code":"kuper"},"expected":{"cartCheckoutOrderPaymentCalls":0}},
+ {"id":"minor-units-budget","user":"Кружка до 500 рублей","input":{"schemaUnits":"minor","currency":"RUB","prices":[19499,46900,56500,369000]},"expected":{"eligiblePrices":[19499,46900]}},
+ {"id":"empty-shipping","input":{"shipping":{"options":[]},"pickupDestination":"магазин","pickupOptions":[],"date":null},"expected":{"inventedCourierOptions":0,"claimsPickupReadyDate":false,"paymentCalls":0}},
+ {"id":"authorized-courier","input":{"source":"MegaMarket","item":"agreed mug","quantity":1,"buyingIntent":true,"totalWithinBudget":true,"addressConfirmed":true,"selectedOption":"returned courier slot","paymentMethod":"agreed SberPay","paymentAuthorized":true},"expected":{"extraPerStepApprovals":0}},
+ {"id":"pvz-not-store","input":{"optionType":"store_pickup","date":null},"expected":{"labelAsPvz":false,"inventedDate":false}},
+ {"id":"apartment-unconfirmed","input":{"apartmentRequired":true,"onlyLocalEcho":true},"expected":{"paymentCalls":0,"silentlyOmitApartment":false}},
+ {"id":"payment-declined","input":{"orderCreated":true,"bankOutcome":"DECLINED"},"expected":{"claimsPaid":false,"repeatPayCalls":0,"newOrders":0}},
+ {"id":"unknown-mutation","input":{"orderUpdate":"timeout"},"expected":{"newOrders":0,"automaticPayCalls":0,"checkExistingOutcome":true}},
+ {"id":"update-check-unavailable","input":{"checkStatus":"unavailable","searchOutcome":"success"},"expected":{"updateErrorMessages":0,"blockedSearch":false}},
+ {"id":"update-install-failed","input":{"explicitInstall":true,"metadataFetch":"failure"},"expected":{"reportInstallFailure":true,"retryBusinessCalls":0}}
+]

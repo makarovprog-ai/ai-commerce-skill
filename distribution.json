@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "payload": [
+    "package.json", "bin/ai-commerce.mjs",
+    "cli/storage.mjs", "cli/secret-store.mjs", "cli/local-key.mjs",
+    "cli/platform-storage.mjs", "cli/crypto.mjs", "cli/http.mjs",
+    "cli/workflow.mjs", "cli/errors.mjs", "cli/app.mjs",
+    "cli/tool-discovery.mjs", "cli/updates.mjs",
+    "cli/native/windows-storage.ps1", "cli/native/read-passphrase.mjs",
+    "scripts/lib/install.mjs", "scripts/lib/update.mjs", "scripts/lib/release.mjs"
+  ],
+  "skill": ["SKILL.md", "references/setup.md", "references/commands.md", "references/search.md", "references/checkout.md"]
+}

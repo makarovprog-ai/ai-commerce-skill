@@ -33,7 +33,7 @@ test('actual installed skill and encrypted CLI work together without login or ne
     assert.equal(envelope.version,1);
     return {r,data:envelope.data};
   }
-  assert.equal(run(['--version']).data.version,'0.3.0');
+  assert.equal(run(['--version']).data.version,'0.4.0');
   run(['--help']);
   const directory=join(base,'fresh encrypted device');
   assert.equal(run(['status','--state-dir',directory]).data.status,'signed_out');
