@@ -9,6 +9,9 @@ import {createHash} from 'node:crypto';
 import {updateInstalled} from '../scripts/lib/update.mjs';
 import {installedMetadata} from '../cli/updates.mjs';
 import {main} from '../cli/app.mjs';
+import {documentedInvocation} from './fixtures/invocation.mjs';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 
 async function fixture(t){
  const base=await mkdtemp(join(await realpath(tmpdir()),'commerce-upgrade-'));t.after(()=>rm(base,{recursive:true,force:true}));
@@ -54,7 +57,7 @@ test('explicit upgrade changes both registrations without touching vault and can
  await writeFile(join(next.skills[1],'extra.md'),'user content');
  await writeFile(join(s.source,'package.json'),JSON.stringify({name:'ai-commerce-skill',version:'0.6.0',type:'module'}));
  await assert.rejects(install({...s,upgrade:true}),/modified|collision/);
- assert.ok((await readFile(join(next.skills[0],'SKILL.md'),'utf8')).includes(next.launcher));
+ assert.deepEqual(documentedInvocation(await readFile(join(next.skills[0],'SKILL.md'),'utf8')),[next.node,next.launcher]);
 });
 test('upgrade rollback restores first registration if second switch fails',async t=>{
  const s=await fixture(t),first=await install(s);const before=await Promise.all(first.skills.map(p=>readFile(join(p,'SKILL.md'),'utf8')));
@@ -104,4 +107,17 @@ test('incomplete rollback reports recovery_required and retains recovery materia
  const journal=JSON.parse(await readFile(join(s.home,'.local/share/ai-commerce/update-transaction.json'),'utf8'));
  assert.ok((await readFile(join(journal[0].backup,'SKILL.md'))).length>0);
  assert.ok(!JSON.stringify(values).includes('synthetic rollback'));
+});
+test('download and update complete through real Git in a disposable local repository',async t=>{
+ const execute=promisify(execFile);
+ try{await execute('git',['--version']);}catch{t.skip('Git is unavailable');return;}
+ const s=await fixture(t),first=await install(s),config=await installedMetadata(first.directory);
+ await writeFile(join(s.source,'package.json'),JSON.stringify({name:'ai-commerce-skill',version:'0.5.0',type:'module'}));
+ const git=async(args,cwd=s.source)=>(await execute('git',['-c','core.hooksPath=/dev/null','-c','commit.gpgsign=false','-c','user.name=Fixture','-c','user.email=fixture@example.test',...args],{cwd,encoding:'utf8',timeout:30000})).stdout;
+ await git(['init','--quiet']);await git(['add','.']);await git(['commit','--quiet','-m','synthetic release']);await git(['tag','v0.5.0']);const commit=(await git(['rev-parse','HEAD'])).trim();
+ // The seam maps only the network boundary to a fixture; production rejects file remotes.
+ const run=(args,{cwd,timeout}={})=>git(args.map(a=>a===config.origin?s.source:a),cwd??s.base);
+ const result=await updateInstalled(config,{latest:async()=>({version:'0.5.0',tag:'v0.5.0',commit}),run});
+ assert.equal(result.status,'updated');assert.equal(JSON.parse(await readFile(join(result.directory,'package.json'),'utf8')).version,'0.5.0');
+ for(const target of result.skills)assert.deepEqual(documentedInvocation(await readFile(join(target,'SKILL.md'),'utf8')),[result.node,result.launcher]);
 });
