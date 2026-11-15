@@ -1,6 +1,17 @@
 import https from 'node:https';
 import http from 'node:http';
 import {ClientError} from './errors.mjs';
+import {isToolListRequest,MAX_DISCOVERY_BYTES} from './tool-discovery.mjs';
+
+function transportCause(error) {
+  const code=error?.code;
+  if(code==='ETIMEDOUT'||code==='ESOCKETTIMEDOUT')return 'timeout';
+  if(code==='ENOTFOUND'||code==='EAI_AGAIN')return 'dns';
+  if(['ECONNREFUSED','ENETUNREACH','EHOSTUNREACH','EADDRNOTAVAIL'].includes(code))return 'connect';
+  if(['ECONNRESET','ECONNABORTED','EPIPE'].includes(code))return 'reset';
+  if(typeof code==='string'&&(/^(?:ERR_TLS_|ERR_SSL_)/.test(code)||['CERT_HAS_EXPIRED','CERT_NOT_YET_VALID','DEPTH_ZERO_SELF_SIGNED_CERT','SELF_SIGNED_CERT_IN_CHAIN','UNABLE_TO_VERIFY_LEAF_SIGNATURE','UNABLE_TO_GET_ISSUER_CERT_LOCALLY'].includes(code)))return 'tls';
+  return 'other';
+}
 
 export function assertEnvironment(env=process.env) {
   if ((env.NODE_TLS_REJECT_UNAUTHORIZED!==undefined && env.NODE_TLS_REJECT_UNAUTHORIZED!=='1') || env.NODE_OPTIONS) throw new ClientError('unsafe_environment');
@@ -16,21 +27,25 @@ export async function requestJSON(value,options={},testTransport={}) {
   if(Object.keys(headers).some(k=>['cookie','x-csrf-token','host'].includes(k.toLowerCase())))throw new ClientError('invalid_request');
   const mcp=canonical.pathname==='/mcp';
   if(mcp&&(options.method!=='POST'||!Buffer.isBuffer(options.body)||options.body.length>262144))throw new ClientError('invalid_request');
+  const operation=mcp?(isToolListRequest(options.body)?'mcp_metadata':'mcp_request'):'auth';
+  const limit=mcp?Math.min(MAX_DISCOVERY_BYTES,options.maxResponseBytes??MAX_DISCOVERY_BYTES):65536;
   const destination=testTransport.mapURL?new URL(testTransport.mapURL(value)):canonical;
   if(destination.protocol!=='https:'&&!(testTransport.mapURL&&destination.protocol==='http:'&&destination.hostname==='127.0.0.1'))throw new ClientError('invalid_target');
   if(options.signal?.aborted)throw new ClientError('cancelled');
   return new Promise((resolve,reject)=>{
-    let timer,settled=false;
+    const start=performance.now();
+    let timer,settled=false,stage='request';
     const finish=(error,value)=>{if(settled)return;settled=true;clearTimeout(timer);error?reject(error):resolve(value);};
-    const failure=()=>new ClientError(options.signal?.aborted?'cancelled':'network_error');
+    const failure=cause=>options.signal?.aborted?new ClientError('cancelled'):new ClientError('network_error',{operation,stage,elapsed_ms:Math.floor(performance.now()-start),cause});
     const req=(destination.protocol==='https:'?https:http).request(destination,{method:options.method||'GET',headers,rejectUnauthorized:true,agent:false,signal:options.signal},res=>{
+      stage='response_body';
       if(res.statusCode>=300&&res.statusCode<400){finish(new ClientError('invalid_response'));res.destroy();return;}
       let size=0;const chunks=[];
-      res.on('data',chunk=>{size+=chunk.length;if(size>(mcp?4194304:65536)){finish(new ClientError('invalid_response'));req.destroy();return;}chunks.push(chunk);});
-      res.on('end',()=>{try{if(!(res.headers['content-type']||'').toLowerCase().startsWith('application/json'))throw Error();finish(null,{status:res.statusCode,data:JSON.parse(Buffer.concat(chunks)),retryAfter:res.headers['retry-after']});}catch{finish(new ClientError('invalid_response'));}});
-      res.on('error',()=>finish(failure()));res.on('aborted',()=>finish(failure()));
+      res.on('data',chunk=>{size+=chunk.length;if(size>limit){finish(new ClientError('invalid_response'));req.destroy();return;}chunks.push(chunk);});
+      res.on('end',()=>{try{if(!(res.headers['content-type']||'').toLowerCase().startsWith('application/json'))throw Error();finish(null,{status:res.statusCode,data:JSON.parse(Buffer.concat(chunks,size)),retryAfter:res.headers['retry-after'],responseBytes:size});}catch{finish(new ClientError('invalid_response'));}});
+      res.on('error',error=>finish(failure(transportCause(error))));res.on('aborted',()=>finish(failure('reset')));
     });
-    timer=setTimeout(()=>{finish(failure());req.destroy();},testTransport.timeoutMs??(mcp?180000:15000));
-    req.on('error',()=>finish(failure()));req.end(options.body);
+    timer=setTimeout(()=>{finish(failure('timeout'));req.destroy();},testTransport.timeoutMs??(operation==='mcp_request'?180000:15000));
+    req.on('error',error=>finish(failure(transportCause(error))));req.end(options.body);
   });
 }

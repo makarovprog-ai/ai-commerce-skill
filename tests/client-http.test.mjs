@@ -1,8 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import {once} from 'node:events';
+import {EventEmitter,once} from 'node:events';
 import {requestJSON,allowedURL,assertEnvironment} from '../cli/http.mjs';
+import {main} from '../cli/app.mjs';
+import {publicError} from '../cli/errors.mjs';
+import {CommerceClient} from '../cli/workflow.mjs';
+import {syntheticProtocol} from './fixtures/protocol.mjs';
+import {Readable} from 'node:stream';
+import {createHash} from 'node:crypto';
 test('targets and environment never enable arbitrary hosts or unsafe TLS',()=>{
  for(const url of ['http://api.sber-ai-pay.ru/mcp','https://wrong.test/mcp','https://api.sber-ai-pay.ru/sberid-auth/token?x=1','https://api.sber-ai-pay.ru/mcp#x'])assert.throws(()=>allowedURL(url));
  assert.equal(allowedURL('https://api.sber-ai-pay.ru/mcp?x=1').search,'?x=1');
@@ -25,14 +31,74 @@ test('transport enforces exact bytes, no redirects, finite body deadline, cancel
   for(const headers of [{Cookie:'a'},{Host:'x'},{'X-CSRF-Token':'a'}])await assert.rejects(requestJSON('https://api.sber-ai-pay.ru/sberid-auth/jwks',{headers}),{code:'invalid_request'});
  }finally{server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
-test('default auth and MCP deadlines cover the entire body at 15 and 180 seconds',async t=>{
+test('only valid tools/list metadata and Auth get the 15 second total body deadline',async t=>{
  const server=http.createServer((req,res)=>{res.writeHead(200,{'content-type':'application/json'});res.write('{');});server.listen(0,'127.0.0.1');await once(server,'listening');
  const delays=[],schedule=globalThis.setTimeout;
- t.mock.method(globalThis,'setTimeout',(callback,delay,...args)=>{delays.push(delay);return schedule(callback,15,...args);});
+ t.mock.method(globalThis,'setTimeout',(callback,delay,...args)=>{delays.push(delay);return schedule(callback,75,...args);});
  const seam={mapURL:()=>`http://127.0.0.1:${server.address().port}/stall`};
  try{
-  await assert.rejects(requestJSON('https://api.sber-ai-pay.ru/sberid-auth/jwks',{},seam),{code:'network_error'});
-  await assert.rejects(requestJSON('https://api.sber-ai-pay.ru/mcp',{method:'POST',body:Buffer.from('{}')},seam),{code:'network_error'});
-  assert.deepEqual(delays,[15000,180000]);
+  const expired=operation=>error=>{
+   const result=publicError(error);
+   assert.deepEqual(result,{code:'network_error',details:{operation,stage:'response_body',elapsed_ms:result.details?.elapsed_ms,cause:'timeout'}});
+   assert.ok(Number.isSafeInteger(result.details.elapsed_ms)&&result.details.elapsed_ms>=0);
+   return true;
+  };
+  await assert.rejects(requestJSON('https://api.sber-ai-pay.ru/sberid-auth/jwks',{},seam),expired('auth'));
+  const target='https://api.sber-ai-pay.ru/mcp';
+  const list={jsonrpc:'2.0',id:2,method:'tools/list',params:{cursor:'next'}};
+  for(const [payload,operation] of [
+   [list,'mcp_metadata'],
+   [{...list,params:undefined},'mcp_metadata'],
+   [{...list,id:undefined},'mcp_request'],
+   [{...list,jsonrpc:'1.0'},'mcp_request'],
+   [{...list,params:{cursor:47}},'mcp_request'],
+   [{...list,method:'tools/call',params:{name:'tools/list',arguments:{cursor:'next'}}},'mcp_request'],
+   [[list],'mcp_request'],
+  ])await assert.rejects(requestJSON(target,{method:'POST',body:Buffer.from(JSON.stringify(payload))},seam),expired(operation));
+  assert.deepEqual(delays,[15000,15000,15000,180000,180000,180000,180000,180000]);
  }finally{t.mock.restoreAll();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});
+
+test('business timeout diagnostics never imply non-execution or replay the original signed bytes',async t=>{
+ const f=syntheticProtocol();await new CommerceClient(f).login();
+ const target='https://api.sber-ai-pay.ru/mcp';
+ const secret='synthetic-secret-for-request';
+ const body=Buffer.from(` {"id":"a","jsonrpc":"2.0","method":"tools/call","params":{"name":"dynamic_mutation","arguments":{"value":"${secret}"}}}\r\n`);
+ const attempts=[],values=[];
+ const server=http.createServer((req,res)=>{
+  const chunks=[];req.on('data',chunk=>chunks.push(chunk));req.on('end',()=>{
+   attempts.push({body:Buffer.concat(chunks),digest:req.headers['content-digest'],signature:req.headers.signature});
+   res.writeHead(200,{'content-type':'application/json'});res.write(secret);
+  });
+ });
+ server.listen(0,'127.0.0.1');await once(server,'listening');
+ t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
+ const transport=(url,options)=>url===target?requestJSON(url,options,{mapURL:()=>`http://127.0.0.1:${server.address().port}/?${secret}`,timeoutMs:150}):f.transport(url,options);
+ assert.equal(await main(['mcp'],{...f,transport,input:Readable.from([body]),write:v=>values.push(JSON.parse(v))}),1);
+ assert.equal(attempts.length,1);assert.deepEqual(attempts[0].body,body);assert.ok(attempts[0].signature);
+ assert.equal(attempts[0].digest,`sha-256=:${createHash('sha256').update(body).digest('base64')}:`);
+ const output=values.at(-1);
+ assert.deepEqual(output,{version:1,ok:false,error:{code:'network_error',details:{operation:'mcp_request',stage:'response_body',elapsed_ms:output.error.details?.elapsed_ms,cause:'timeout'}}});
+ assert.ok(output.error.details.elapsed_ms>=0);
+ assert.ok(!JSON.stringify(output).includes(secret));
+});
+
+test('transport cause mapping never copies error messages, paths, or unrecognized codes',async t=>{
+ const secret='must-not-leak.example/secret-path',emitted=[];
+ for(const [code,cause] of [['ENOTFOUND','dns'],['EAI_AGAIN','dns'],['ECONNREFUSED','connect'],['CERT_HAS_EXPIRED','tls'],['ECONNRESET','reset'],[secret,'other']]){
+  t.mock.method(http,'request',()=>{
+   const req=new EventEmitter();
+   req.end=()=>queueMicrotask(()=>req.emit('error',Object.assign(new Error(secret),{code,path:secret})));
+   req.destroy=()=>{};
+   return req;
+  });
+  try{
+   await assert.rejects(requestJSON('https://api.sber-ai-pay.ru/mcp?synthetic-secret',{method:'POST',body:Buffer.from('{}')},{mapURL:()=>`http://127.0.0.1/?${secret}`}),error=>{
+    const output=publicError(error);emitted.push(output);
+    assert.deepEqual(output,{code:'network_error',details:{operation:'mcp_request',stage:'request',elapsed_ms:output.details?.elapsed_ms,cause}});
+    assert.ok(output.details.elapsed_ms>=0);return true;
+   });
+  }finally{t.mock.restoreAll();}
+ }
+ assert.ok(!JSON.stringify(emitted).includes(secret));
 });
