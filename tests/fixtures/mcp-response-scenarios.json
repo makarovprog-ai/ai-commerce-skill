@@ -1,0 +1,41 @@
+[
+  {
+    "id": "nested-offers",
+    "user": "Покажи найденные наушники",
+    "tool": {"name":"catalog_lookup","outputSchema":{"type":"object","required":["products"],"properties":{"products":{"type":"array","items":{"$ref":"#/$defs/Product"}}},"$defs":{"Product":{"type":"object","properties":{"title":{"type":"string"},"variants":{"type":"array","items":{"$ref":"#/$defs/Offer"}}}},"Offer":{"type":"object","properties":{"title":{"type":"string"},"url":{"type":"string"},"source":{"type":"string"},"price":{"type":"number","description":"Price in rubles"}}}}}},
+    "response":{"ok":true,"data":{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"products":[{"title":"Наушники Альфа","variants":[{"title":"Альфа, белые","url":"https://shop.example.test/a-white","source":"Мегамаркет","price":990},{"title":"Альфа, чёрные","url":"https://shop.example.test/a-black","source":"Мегамаркет","price":1090}]},{"title":"Наушники Бета","variants":[{"title":"Бета","url":"https://shop.example.test/b","source":"InSales","price":890}]}],"messages":[{"code":"merchant_credential_unavailable","message":"One other source is unavailable"}]}}}},
+    "previousPreview":{"items":[]}
+  },
+  {
+    "id":"renamed-contract",
+    "user":"Покажи найденные кружки",
+    "cachedTool":{"name":"search_catalog","outputSchema":{"type":"object","properties":{"products":{"type":"array"}}}},
+    "tool":{"name":"find_catalog_offers","outputSchema":{"type":"object","required":["matches"],"properties":{"matches":{"type":"array","description":"Found purchasable offers","items":{"type":"object","properties":{"label":{"type":"string","description":"Product name"},"shop":{"type":"string","description":"Source brand"},"link":{"type":"string","description":"Product URL"},"rubles":{"type":"number","description":"Price in RUB major units"}}}}}}},
+    "response":{"ok":true,"data":{"jsonrpc":"2.0","id":2,"result":{"structuredContent":{"matches":[{"label":"Белая кружка","shop":"Мегамаркет","link":"https://shop.example.test/mug","rubles":469}]}}}}
+  },
+  {
+    "id":"text-content-groups",
+    "user":"Покажи результаты по кружкам и тарелкам",
+    "tool":{"name":"find_items","outputSchema":{"type":"object","required":["groups"],"properties":{"groups":{"type":"array","items":{"type":"object","required":["query","offers"],"properties":{"query":{"type":"string"},"offers":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string"},"rubles":{"type":"number","description":"RUB major units"}}}}}}}}}},
+    "response":{"ok":true,"data":{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"Результат поиска"},{"type":"text","text":"{\"groups\":[{\"query\":\"кружки\",\"offers\":[{\"label\":\"Белая кружка\",\"rubles\":469}]},{\"query\":\"тарелки\",\"offers\":[]}]}"}]}}}
+  },
+  {
+    "id":"changed-unexplained-result",
+    "user":"Что нашлось?",
+    "tool":{"name":"find_items","outputSchema":{"type":"object","required":["matches"],"properties":{"matches":{"type":"array"}}}},
+    "refreshedTool":{"name":"find_items","outputSchema":{"type":"object","required":["matches"],"properties":{"matches":{"type":"array"}}}},
+    "response":{"ok":true,"data":{"jsonrpc":"2.0","id":4,"result":{"structuredContent":{"payload":"opaque-format-v9"}}}}
+  },
+  {
+    "id":"genuine-empty",
+    "user":"Что нашлось?",
+    "tool":{"name":"find_items","outputSchema":{"type":"object","required":["matches"],"properties":{"matches":{"type":"array","description":"Complete found product list"}}}},
+    "response":{"ok":true,"data":{"jsonrpc":"2.0","id":5,"result":{"structuredContent":{"matches":[]}}}}
+  },
+  {
+    "id":"tool-error-not-empty",
+    "user":"Что нашлось?",
+    "tool":{"name":"find_items"},
+    "response":{"ok":true,"data":{"jsonrpc":"2.0","id":6,"result":{"isError":true,"content":[{"type":"text","text":"Catalog is temporarily unavailable"}]}}}
+  }
+]

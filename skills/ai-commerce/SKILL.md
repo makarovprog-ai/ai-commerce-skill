@@ -65,8 +65,13 @@ missing/conflicting identity does not authorize checkout. Do not silently replac
 a selected product with another source.
 
 Use `tools --summary` to discover tools and `tools --name NAME` for the exact
-needed schema. Read the schema before making a bounded `mcp` request. Do not
-invent tools or fields. A missing tool or denial is not permission to bypass a gate.
+needed schema. Read current input/output schemas before making a bounded `mcp`
+request; tool names and response fields can change. Keep the complete CLI response
+available until it has been interpreted; do not discard it through an unverified
+projection. A failed parse, missing field or empty local preview is NOT an empty
+server result. Follow [response handling](references/commands.md#interpreting-mcp-results)
+and the search reference before declaring nothing found. Do not invent tools or
+fields. A missing tool or denial is not permission to bypass a gate.
 Ordinary user-requested search after login needs no additional AI Commerce
 confirmation. Before creating an order or making a payment, ensure the user's
 request authorizes that action and its concrete terms (items, quantities, total,

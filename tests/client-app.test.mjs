@@ -17,7 +17,7 @@ test('help and doctor are versioned offline output; malformed argv never accesse
  const values=[];const dependencies={write:value=>values.push(JSON.parse(value)),transport:()=>{throw Error('network used');}};
  assert.equal(await main(['--help'],dependencies),0);assert.equal(values[0].version,1);assert.equal(values[0].ok,true);assert.match(values[0].data.usage,/ai-commerce/);
  assert.equal(await main(['doctor'],dependencies),0);assert.equal(values[1].data.network,'not_checked');assert.equal(values[1].data.runtime.node,process.versions.node);
- assert.equal(await main(['--version'],dependencies),0);assert.equal(values.at(-1).data.version,'0.4.0');
+ assert.equal(await main(['--version'],dependencies),0);assert.equal(values.at(-1).data.version,JSON.parse(await fs.readFile(new URL('../package.json',import.meta.url),'utf8')).version);
  for(const args of [['mcp','--url','https://wrong.test'],['login','--profile','bad'],['mcp','--input','-','--input','-'],['status','--access-token','secret'],['login','--passphrase-fd','0'],['login','--passphrase-fd','sensitive']]){assert.equal(await main(args,dependencies),1);assert.equal(values.at(-1).error.code,'usage');}
  assert.equal(await main(['doctor','--passphrase-fd','3'],dependencies),0);
 });

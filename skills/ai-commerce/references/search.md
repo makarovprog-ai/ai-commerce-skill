@@ -7,6 +7,23 @@ units (46900 RUB = 469 ₽); legacy V2 can use rubles. Read the schema, includin
 filter units, and independently exclude products above the user's budget.
 Natural-language “до 500 рублей” alone is not proof the returned prices obey it.
 
+Before formatting cards, follow [MCP result handling](commands.md#interpreting-mcp-results)
+and identify the actual result collections and their relationships from the
+current schema/description and response. Keep query-group, product and offer
+context together while traversing nested collections. Parent binding does not
+automatically move a parser's current input into that parent: in `jq`, `as $p`
+binds a variable but a following field lookup still uses the prior input unless
+you explicitly select `$p`. Choose paths from the current payload, not a fixed
+`products/variants` recipe copied from an earlier call.
+
+Before saying "nothing found", verify that the successful decoded result
+explicitly contains no returned options for that query. Missing paths, `null`,
+parse errors, truncated output and an empty derived preview are not that evidence.
+If the source has entries but a preview is empty, repair the local mapping of the
+retained response; do not silently fall back to web search. Distinguish a genuinely
+empty result from returned products that do not match the user's criteria, and
+from unavailable sources or an uninterpretable response.
+
 For a person asking to find products, usually show 3–5 relevant options unless
 they ask otherwise. Include returned image, linked product name, price/currency,
 source brand (Мегамаркет, Купер, InSales) and useful distinguishing details. Do

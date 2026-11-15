@@ -15,3 +15,16 @@ For each supported harness, record actual scenarios and mismatches separately.
 An independent simulated run is not proof of all harnesses or real purchases.
 Automated protocol tests cover token renewal; tests/updates.test.mjs and
 tests/update-install.test.mjs cover updater effects. Neither proves LLM behavior.
+
+Use fixtures/mcp-response-scenarios.json as a separate read-only presentation
+exercise: supply each user request, tool description and original response to a
+fresh agent with the skill. Ask it to prepare the response and list any further
+calls it needs. Do not supply expected decisions before it answers. Do not use
+network, credentials, real user sessions or purchases.
+
+Evaluate observable outcomes: three nested offers remain visible despite an empty
+previous preview; renamed tools/fields follow the supplied current schema; text
+content is not assumed to be JSON in its first block; one empty group does not
+erase another. Unexplained structure and tool errors are not zero products. A
+verified empty collection is reported as empty. Resolving a format mismatch may
+refresh discovery once, but never replay the completed business call.
