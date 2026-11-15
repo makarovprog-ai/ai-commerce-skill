@@ -42,8 +42,9 @@ tool names, status enums or field paths as a substitute for their meaning.
    tool and according to its instructions, or give the returned payment link for
    the user to pay. A separate SberPay CLI is not required for search/checkout.
 8. Verify the payment outcome. `ok:true`, a readiness status, an invoice or a
-   created order does not mean paid. Check JSON-RPC/tool isError too. Complete
-   only after confirmed payment when the schema calls for it. Read the order when
+   created order does not mean paid. Check JSON-RPC/tool isError too. If the current
+   contract requires post-payment completion, wait for confirmed payment;
+   otherwise follow its documented transition within the user's mandate. Read the order when
    needed to establish the outcome; do not call completion or order-read merely
    because they appear in this list.
 9. Report the known final state, actual total, destination and returned order
