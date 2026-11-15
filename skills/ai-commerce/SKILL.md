@@ -64,14 +64,24 @@ Use returned source metadata, not seller name, to establish MegaMarket identity;
 missing/conflicting identity does not authorize checkout. Do not silently replace
 a selected product with another source.
 
-Use `tools --summary` to discover tools and `tools --name NAME` for the exact
-needed schema. Read current input/output schemas before making a bounded `mcp`
-request; tool names and response fields can change. Keep the complete CLI response
+At the start of an operation, fetch `tools` once and retain its complete response.
+Use `tools --from PATH --summary` and `tools --from PATH --name NAME` to select
+locally from that same snapshot (stdin `--from -` also works). No extra online
+summary/name sequence is needed. Read current input/output schemas before making
+a bounded `mcp` request; tool names and response fields can change. Refresh
+discovery for a new operation, after an identity/profile change, or once on a
+schema mismatch; do not reuse another user's snapshot or treat it as permanent.
+Do not prepend `doctor`, `status`, `session`, manual `refresh`, product lookup,
+or a web search to every operation: each has a purpose, not a mandatory place in
+a fixed script. Normal online commands already refresh access when needed.
+Keep the complete CLI response
 available until it has been interpreted; do not discard it through an unverified
 projection. A failed parse, missing field or empty local preview is NOT an empty
 server result. Follow [response handling](references/commands.md#interpreting-mcp-results)
 and the search reference before declaring nothing found. Do not invent tools or
-fields. A missing tool or denial is not permission to bypass a gate.
+fields. A missing tool or denial is not permission to bypass a gate. Once usable
+search results are interpreted, show them promptly; separate any necessary extra
+research rather than silently delaying the answer for repetitive web checks.
 Ordinary user-requested search after login needs no additional AI Commerce
 confirmation. Before creating an order or making a payment, ensure the user's
 request authorizes that action and its concrete terms (items, quantities, total,

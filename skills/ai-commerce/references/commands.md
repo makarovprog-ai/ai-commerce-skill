@@ -14,6 +14,9 @@ Append arguments to the executable/argument pair in SKILL.md:
 | `tools` | Inspect available remote tool schemas |
 | `tools --summary` | List tool names, titles, descriptions and annotations, without schemas |
 | `tools --name NAME` | Get the full schema and metadata of one exact tool |
+| `tools --from PATH --summary` | Select a summary locally from a saved full `tools` response |
+| `tools --from PATH --name NAME` | Select a full tool schema locally from that same response |
+| `tools --from -` | Read and validate a full discovery response from stdin, offline |
 | `update check` | Check the installed source for a stable release; no login or MCP |
 | `update install` | Explicitly update the skill and CLI together, retaining keys and session |
 | `mcp --input PATH` | Send the exact bytes of a bounded JSON-RPC input file |
@@ -26,8 +29,11 @@ private temporary input file or stdin for MCP requests, not credentials in
 arguments. Construct only the intended tool call according to its schema.
 Login, search, checkout, order creation and payments use the same signed `mcp`
 transport. New cart/checkout/order/payment is limited to MegaMarket by this skill.
-Inspect `tools --summary`, then `tools --name NAME` for needed schemas; do not invent tool
-names or assume every server/session enables every operation. Respect server
+For an operation, fetch full `tools` once, retain the JSON envelope privately,
+and select the needed schemas locally with `tools --from PATH`. The original
+`tools --summary` and `tools --name NAME` still each perform fresh remote
+discovery; do not chain them when the same full result is already available.
+Do not invent tool names or assume every server/session enables every operation. Respect server
 denials without trying another identity or bypass. A user-requested search after
 login needs no additional AI Commerce confirmation, subject to host safeguards.
 For order creation or payment, establish the user's authorization and concrete
@@ -35,6 +41,43 @@ purchase terms first; a successful login is not financial consent. Use a tool's
 documented idempotency mechanism where available. After an ambiguous stateful
 failure, check the order/payment outcome before any new attempt; if no safe
 status check is available, report the uncertainty and stop.
+
+## Discovery without redundant requests
+
+`tools --from` reads the complete successful CLI envelope, not a saved summary,
+one-tool projection, or arbitrary extracted array. It performs no network,
+authentication, vault access or update check. It cannot be combined with profile,
+state-directory or passphrase options. Malformed, incomplete or duplicate-name
+catalogs are errors, not a reason to fall back silently to the network.
+
+The snapshot is untrusted metadata for interpreting this operation, not proof of
+access. Keep it with its original identity/profile and response time. Fetch anew
+for the next operation, after reconnecting/changing identity, or once when the
+actual response contradicts it. Respect returned freshness hints; local selection
+does not renew them. No persistent implicit cache or background polling is used.
+Remote discovery follows returned pagination cursors, bounded to 20 pages and
+4 MiB total. An incomplete catalog is never presented as complete. Local snapshot
+input is bounded to 8 MiB; business request input remains bounded to 256 KiB.
+
+Do not add `session` before normal `tools` or `mcp`, or manual `refresh` based only
+on offline expiry: the CLI already performs the required credential preflight.
+`session` remains useful when the user's task is specifically to check access.
+Business calls do not fetch tool schemas automatically; the agent uses the
+retained current catalog. A metadata failure must not be reported as a failed
+checkout/payment that has not actually been sent.
+
+Each remote `tools/list` HTTP request has a 15-second complete-response deadline;
+ordinary business MCP requests keep 180 seconds. Auth requests keep 15 seconds.
+These are per-request limits, not a promise that the whole command, including
+refresh, preflight and pagination, finishes in 15 seconds. A `network_error` may
+include safe operation/stage/elapsed/cause diagnostics; it contains no raw request,
+token or URL. A network failure does not prove the bank session expired or that a
+sent mutation had no effect. There are no automatic network/business retries.
+
+This CLI targets AI Commerce's authenticated JSON-only HTTP MCP interface. It is
+not a universal MCP transport client: do not add speculative `initialize`, SSE,
+protocol-version negotiation or session setup as troubleshooting rituals. A
+server transport change requires a compatible client update, not guessed calls.
 
 Doctor returns `data.storage.backend`, prerequisite `present`/`unavailable`
 statuses, `directory` metadata and `next_action`. Storage `status` is

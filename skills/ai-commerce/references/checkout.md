@@ -5,14 +5,24 @@ the user's buying intent, item/quantity and budget including delivery. Do not
 add repeated approvals for technical steps already covered by that mandate.
 Ask only about missing material choices or a price/terms change outside it.
 
-1. Discover the relevant current tool schemas. Keep the exact selected offer's
+The following are decision checkpoints, NOT a fixed sequence of API calls. The
+current tool schemas, descriptions and returned state determine which operation
+is needed next. Skip a checkpoint already satisfied by reliable returned data;
+never invent a required lookup, update, payment, completion or order-read step.
+Never use array position (such as the first delivery/payment option), remembered
+tool names, status enums or field paths as a substitute for their meaning.
+
+1. Select the relevant current tool schemas locally from this operation's retained
+   full discovery response. Fetch it if absent or stale. Keep the exact selected offer's
    item/store/sku identifiers. Product lookup is useful when needed and supported
    for that ID format, not a mandatory extra call before every checkout.
 2. Create a checkout only once buying intent is established. This can change a
    merchant cart/profile even before an order exists. Inspect the resulting cart
    for exactly the intended items/quantities; do not include unexpected contents.
-3. Select a returned destination, then a real returned delivery option. A
-   destination is not itself an option; selection may produce refreshed options.
+3. Follow the returned fulfillment requirements. If the contract requires a
+   destination before delivery options, select it and inspect the new options;
+   otherwise use the already returned options. A destination is not itself a
+   delivery option; selection may produce refreshed options.
    An empty shipping group is not an available courier service. Do not invent
    option identifiers or fields. Use only schema-supported calls to obtain the
    next options; if none is available, stop before creating/paying an order.
@@ -31,9 +41,11 @@ Ask only about missing material choices or a price/terms change outside it.
    without a separate links array). Pay only with an available authorized payment
    tool and according to its instructions, or give the returned payment link for
    the user to pay. A separate SberPay CLI is not required for search/checkout.
-8. Verify the payment outcome. `ok:true`, `ready_for_complete`, an invoice or a
+8. Verify the payment outcome. `ok:true`, a readiness status, an invoice or a
    created order does not mean paid. Check JSON-RPC/tool isError too. Complete
-   only after confirmed payment when the schema calls for it, then read the order.
+   only after confirmed payment when the schema calls for it. Read the order when
+   needed to establish the outcome; do not call completion or order-read merely
+   because they appear in this list.
 9. Report the known final state, actual total, destination and returned order
    number/link/date. Never fabricate a paid confirmation or collection readiness.
 
