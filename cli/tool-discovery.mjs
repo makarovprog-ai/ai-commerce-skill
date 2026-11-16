@@ -1,4 +1,4 @@
-import {ClientError} from './errors.mjs';
+import {ClientError,httpError} from './errors.mjs';
 
 export const MAX_DISCOVERY_BYTES=4*1024*1024;
 const MAX_PAGES=20;
@@ -15,6 +15,11 @@ export function isToolListRequest(body) {
   if(!Object.hasOwn(request,'params'))return true;
   const {params}=request;
   return object(params)&&(!Object.hasOwn(params,'cursor')||cursor(params.cursor))&&(!Object.hasOwn(params,'_meta')||object(params._meta));
+}
+export function mcpPhase(body) {
+  if(isToolListRequest(body))return 'tools/list';
+  try {const r=JSON.parse(body);if(object(r)&&r.jsonrpc==='2.0'&&rpcId(r.id)&&r.method==='tools/call'&&object(r.params)&&typeof r.params.name==='string')return 'tools/call';}catch{}
+  return 'mcp';
 }
 
 function pageTools(data,id,names=new Set()) {
@@ -53,8 +58,11 @@ export async function discoverTools(send) {
     const body=metadataBody(id,next);
     if(body.length>262144)throw invalidResponse();
     const response=await send(body,remaining);
-    if(response.status<200||response.status>=300)throw new ClientError('remote_error');
-    const result=pageTools(response.data,id,names);
+    if(response.status<200||response.status>=300)throw httpError('remote_error',response,'tools/list');
+    let result;try{result=pageTools(response.data,id,names);}catch(error){
+      if(error instanceof ClientError)throw httpError(error.code,response,'tools/list');
+      throw error;
+    }
     let size;try{size=response.responseBytes??Buffer.byteLength(JSON.stringify(response.data));}catch{throw invalidResponse();}
     if(!Number.isSafeInteger(size)||size<1||size>remaining)throw invalidResponse();
     remaining-=size;

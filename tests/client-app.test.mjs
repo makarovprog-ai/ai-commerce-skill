@@ -51,7 +51,8 @@ test('raw input preserves bytes and rejects size, symlink, FIFO, cancellation an
 test('command errors expose only safe code and MCP server errors are not echoed',async()=>{
  const values=[];const f=syntheticProtocol();await main(['login'],{...f,write:()=>{}});
  const transport=async(url,options)=>url==='https://api.sber-ai-pay.ru/mcp'?{status:400,data:{error:{message:'synthetic-private-token',access_token:f.state.access_token}}}:f.transport(url,options);
- assert.equal(await main(['mcp'],{...f,transport,input:Readable.from(['{}']),write:v=>values.push(JSON.parse(v))}),1);assert.deepEqual(values.at(-1),{version:1,ok:false,error:{code:'remote_error'}});
+ assert.equal(await main(['mcp'],{...f,transport,input:Readable.from(['{}']),write:v=>values.push(JSON.parse(v))}),1);
+ const r=values.at(-1);assert.deepEqual(r,{version:1,ok:false,error:{code:'remote_error',diagnostics:{phase:'mcp',http_status:400,time_utc:r.error.diagnostics.time_utc}}});
 });
 test('successful MCP cannot reflect session secrets through arbitrary text or nested private fields',async()=>{
  const values=[],f=syntheticProtocol();await main(['login'],{...f,write:()=>{}});

@@ -39,7 +39,9 @@ test('only valid tools/list metadata and Auth get the 15 second total body deadl
  try{
   const expired=operation=>error=>{
    const result=publicError(error);
-   assert.deepEqual(result,{code:'network_error',details:{operation,stage:'response_body',elapsed_ms:result.details?.elapsed_ms,cause:'timeout'}});
+   const stage=result.details?.stage;
+   assert.ok(['request','response_body'].includes(stage));
+   assert.deepEqual(result,{code:'network_error',details:{operation,stage,elapsed_ms:result.details?.elapsed_ms,cause:'timeout'},...(stage==='response_body'?{diagnostics:{http_status:200}}:{})});
    assert.ok(Number.isSafeInteger(result.details.elapsed_ms)&&result.details.elapsed_ms>=0);
    return true;
   };
@@ -78,7 +80,7 @@ test('business timeout diagnostics never imply non-execution or replay the origi
  assert.equal(attempts.length,1);assert.deepEqual(attempts[0].body,body);assert.ok(attempts[0].signature);
  assert.equal(attempts[0].digest,`sha-256=:${createHash('sha256').update(body).digest('base64')}:`);
  const output=values.at(-1);
- assert.deepEqual(output,{version:1,ok:false,error:{code:'network_error',details:{operation:'mcp_request',stage:'response_body',elapsed_ms:output.error.details?.elapsed_ms,cause:'timeout'}}});
+ assert.deepEqual(output,{version:1,ok:false,error:{code:'network_error',details:{operation:'mcp_request',stage:'response_body',elapsed_ms:output.error.details?.elapsed_ms,cause:'timeout'},diagnostics:{phase:'tools/call',http_status:200,time_utc:output.error.diagnostics.time_utc,elapsed_ms:output.error.details.elapsed_ms}}});
  assert.ok(output.error.details.elapsed_ms>=0);
  assert.ok(!JSON.stringify(output).includes(secret));
 });

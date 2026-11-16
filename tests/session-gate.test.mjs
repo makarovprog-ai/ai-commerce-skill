@@ -13,7 +13,7 @@ test('trusted MCP deactivation exposes fixed login action and blocks later signe
  const transport=async(url,options)=>{if(url===mcp){attempts++;return {status:401,data:{error:'device_deactivated',message:'untrusted sensitive text'}};}return f.transport(url,options);};
  const client=new CommerceClient({...f,transport});
  assert.equal(await main(['mcp'],{...f,transport,input:Readable.from(['{}']),write:v=>values.push(JSON.parse(v))}),1);
- assert.deepEqual(values.at(-1),{version:1,ok:false,error:{code:'device_deactivated',message,next_action:'login'}});
+ assert.deepEqual(values.at(-1),{version:1,ok:false,error:{code:'device_deactivated',message,next_action:'login',diagnostics:{phase:'mcp',http_status:401,time_utc:values.at(-1).error.diagnostics.time_utc}}});
  assert.deepEqual(f.state,before);assert.equal(f.blocked,true);
  assert.equal(f.keys.signJkt,sign);assert.equal(f.keys.wrapJkt,wrap);
  assert.deepEqual(await client.status(),{status:'device_deactivated',message,next_action:'login'});

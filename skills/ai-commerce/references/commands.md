@@ -6,6 +6,7 @@ Append arguments to the executable/argument pair in SKILL.md:
 | --- | --- |
 | `--help` | Local usage and supported options |
 | `doctor` | Offline runtime, prerequisite and directory metadata checks; no unlock or credential reads |
+| `doctor --network` | One credential-free HTTPS/TLS probe to AI Commerce; no session or tool invocation |
 | `status` | Offline local session status |
 | `login` | Browser authorization with link and four-symbol comparison |
 | `session` | Validate local access and, for default `mcp`, the provider gate via signed `tools/list` |
@@ -41,6 +42,42 @@ purchase terms first; a successful login is not financial consent. Use a tool's
 documented idempotency mechanism where available. After an ambiguous stateful
 failure, check the order/payment outcome before any new attempt; if no safe
 status check is available, report the uncertainty and stop.
+
+## Troubleshooting
+
+Start with the failed command's original envelope: `error.code`, `reason`,
+`details` and `diagnostics`. `diagnostics` may include phase, HTTP status, UTC
+time, elapsed time, and a request ID if the endpoint returned one. An error
+at `mcp-session`, `release-jwks`, or `tools/list` is not a search, checkout or
+payment failure unless that business call actually ran separately. Use the time
+and request ID to match backend logs, if available. Do not infer why a server
+signature check failed from `401` alone.
+
+- `status:stored` confirms local storage, not server acceptance. For
+  `session_missing`, check that the environment, profile and state location
+  match the original login before asking for another login.
+- `refresh_outcome_unknown` preserves a guard against replaying the old refresh.
+  Do not retry it or remove its marker. If access must be restored, use normal
+  browser login. `device_deactivated` has its existing reconnect instruction.
+- A generic `401` during `tools/list` after successful preflight is not proof of
+  session expiry. Report the failing stage and stop that operation; don't start
+  login or a search as a diagnostic. After an uncertain stateful call, check the
+  outcome through a documented read before considering any retry.
+
+For a connection or TLS hypothesis, run `doctor --network` with the **same CLI
+and execution environment** as the failed command. It makes one unauthenticated
+HTTPS GET to a fixed public JWKS endpoint over the same configured transport;
+it checks no session, doesn't read custody, and doesn't run a tool or updater.
+It reports CLI/Node versions, UTC time, HTTP status and validated peer certificate
+metadata when available. `proxy_env_configured` reports only whether an HTTPS
+proxy environment variable is set, not whether the request went through it. The
+probe does not enable proxies, change trust, or follow redirects. TLS/HTTP success
+doesn't prove that authenticated MCP works. Inspect the HTTP status even for a
+completed probe. Do not run this probe before every operation or swap transports
+to make errors disappear.
+
+Share only the relevant diagnostic fields; never dump environment variables,
+private state, headers/bodies, tokens, signatures, proxy URLs or key material.
 
 ## Discovery without redundant requests
 

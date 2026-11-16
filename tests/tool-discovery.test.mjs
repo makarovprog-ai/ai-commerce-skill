@@ -127,7 +127,9 @@ test('discovery rejects bad pages and bounds pagination without returning partia
   let attempts=0;
   const deps={...f,write:v=>values.push(JSON.parse(v)),transport:async(url,o)=>url===mcp?{status:200,data:response(++attempts)}:f.transport(url,o)};
   assert.equal(await main(['tools'],deps),1,label);
-  assert.deepEqual(values.at(-1),{version:1,ok:false,error:{code}},label);
+  const actual=values.at(-1);
+  const diagnostics=['repeated cursor','count bound','size bound'].includes(label)?{}:{diagnostics:{phase:'tools/list',http_status:200,time_utc:actual.error.diagnostics?.time_utc}};
+  assert.deepEqual(actual,{version:1,ok:false,error:{code,...diagnostics}},label);
   assert.equal(attempts,count,label);
  }
 });

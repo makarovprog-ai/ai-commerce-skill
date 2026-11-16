@@ -2,9 +2,9 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {BASE,REDIRECT,profile,b64,decode,random,hash,sign,unwrap,dpop,verifyToken,mcpRequest} from './crypto.mjs';
 import {Storage,defaultDirectory} from './storage.mjs';
 import {join} from 'node:path';
-import {ClientError,publicError} from './errors.mjs';
+import {ClientError,publicError,diagnosticError,httpError} from './errors.mjs';
 import {requestJSON,assertEnvironment} from './http.mjs';
-import {discoverTools,validateCompleteTools} from './tool-discovery.mjs';
+import {discoverTools,validateCompleteTools,mcpPhase} from './tool-discovery.mjs';
 import {inspectSecretProvider} from './secret-store.mjs';
 const require=(value)=>{if(!value)throw new ClientError('invalid_response');};
 const opaque=v=>typeof v==='string'&&/^[A-Za-z0-9_-]{43}$/.test(v);
@@ -14,10 +14,10 @@ const terminal=new Set(['denied','failed','expired','completed','request_unavail
 const metadataBody=()=>Buffer.from(JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list',params:{}}));
 // Called only for HTTP responses from the fixed Auth/MCP transport targets.
 // Never inspect successful business payloads or use remote message text.
-function serviceError(response,field){
+function serviceError(response,field,phase){
   const code=response.data?.[field];
-  if(response.status===401&&code==='device_deactivated')throw new ClientError(code);
-  if(response.status===503&&code==='sberid_check_in_progress')throw new ClientError(code);
+  if(response.status===401&&code==='device_deactivated')throw httpError(code,response,phase);
+  if(response.status===503&&code==='sberid_check_in_progress')throw httpError(code,response,phase);
 }
 // A remote tool must not be able to reflect local custody material into output.
 function publicMcpResponse(response,state){
@@ -30,7 +30,13 @@ export class CommerceClient{
     this.profile=profile(profileName);this.directory=directory??join(defaultDirectory(),profileName);this.storageOptions=storageOptions??{};this.store=store??new Storage(this.directory,profileName,storageOptions);this.transport=transport;this.sleep=sleep;this.now=now;this.output=output;this.signal=signal;
   }
   check(){assertEnvironment();if(this.signal?.aborted)throw new ClientError('cancelled');}
-  async request(path,keys,method='GET',body,accessToken){this.check();const url=BASE+path;const response=await this.transport(url,{method,signal:this.signal,headers:{...(keys?{DPoP:dpop(keys,method,url,accessToken,this.now())}:{}),...(body?{'content-type':typeof body==='string'?'application/x-www-form-urlencoded':'application/json'}:{}),...(accessToken?{authorization:`DPoP ${accessToken}`}:{})},body:body?typeof body==='string'?body:JSON.stringify(body):undefined});this.check();serviceError(response,'code');return response;}
+  async request(path,keys,method='GET',body,accessToken,phase=path.startsWith('/device/')?'enrollment':path.slice(1)){
+    this.check();const url=BASE+path;
+    try{
+      const response=await this.transport(url,{method,signal:this.signal,headers:{...(keys?{DPoP:dpop(keys,method,url,accessToken,this.now())}:{}),...(body?{'content-type':typeof body==='string'?'application/x-www-form-urlencoded':'application/json'}:{}),...(accessToken?{authorization:`DPoP ${accessToken}`}:{})},body:body?typeof body==='string'?body:JSON.stringify(body):undefined});
+      this.check();serviceError(response,'code',phase);return response;
+    }catch(error){throw diagnosticError(error,phase);}
+  }
   async withCustody(callback,options){
     return this.store.withLock(async store=>{
       try{return await callback(store);}
@@ -141,9 +147,11 @@ export class CommerceClient{
         }).toString());
       } catch(error) {
         if(error instanceof ClientError&&['device_deactivated','sberid_check_in_progress'].includes(error.code))throw error;
-        throw new ClientError('login_required');
+        throw diagnosticError(new ClientError('login_required',undefined,{
+          ...(error instanceof ClientError?error.diagnostics:undefined),cause:error instanceof ClientError?error.code:'command_failed',
+        }),'token');
       }
-      if(token.status!==200)throw new ClientError('login_required');
+      if(token.status!==200)throw httpError('login_required',token,'token');
       const session=await this.validate(token.data,keys);
       await store.save(keys,session);
       const result=await this.protectedSession(keys,session,store);
@@ -159,7 +167,7 @@ export class CommerceClient{
       && ['user_id','device_id','grant_id','packet_id'].every(k=>uuid(t[k])) && t.dek_generation===1);
 
     const jwks=await this.request('/jwks');
-    require(jwks.status===200);
+    if(jwks.status!==200)throw httpError('invalid_response',jwks,'jwks');
     const claims=await verifyToken(t.access_token,jwks.data,keys,t,this.now(),this.profile);
     require(uuid(claims.family_id));
     const context=decode(t.wrapping_context).toString('utf8');
@@ -184,21 +192,25 @@ export class CommerceClient{
 
   async load(store) {
     const keys=await store?.keys(false);
-    if(!keys)throw new ClientError('login_required','session_missing');
+    if(!keys)throw diagnosticError(new ClientError('login_required','session_missing'),'local-session');
     if(await store.blocked(keys))throw new ClientError('device_deactivated');
     const state=await store.session(keys);
-    if(!state)throw new ClientError('login_required','session_missing');
-    if(state.rotation_in_flight)throw new ClientError('login_required','refresh_outcome_unknown');
+    if(!state)throw diagnosticError(new ClientError('login_required','session_missing'),'local-session');
+    if(state.rotation_in_flight)throw diagnosticError(new ClientError('login_required','refresh_outcome_unknown'),'local-session');
     require(state.version===1 && state.client_id===this.profile.client && state.sign_jkt===keys.signJkt
       && state.wrap_jkt===keys.wrapJkt && opaque(state.refresh_token));
     return {keys,state};
   }
   async protectedSession(keys,state,store){
     const mcp=this.profile.scope==='mcp:invoke';
-    const r=await this.request(mcp?'/mcp-session':'/session',keys,'GET',undefined,state.access_token);
-    require(r.status===200);
-    fields(r.data,['status','user_id','device_id','grant_id',...(mcp?['family_id','packet_id','wrapped_dek','wrapping_context','dek_generation']:[])]);
-    require(r.data.status==='active'&&['user_id','device_id','grant_id',...(mcp?['family_id','packet_id','wrapped_dek','wrapping_context','dek_generation']:[])].every(k=>r.data[k]===state[k]));
+    const phase=mcp?'mcp-session':'session';
+    const r=await this.request('/'+phase,keys,'GET',undefined,state.access_token);
+    if(r.status!==200)throw httpError('invalid_response',r,phase);
+    const bindings=['user_id','device_id','grant_id',...(mcp?['family_id','packet_id','wrapped_dek','wrapping_context','dek_generation']:[])];
+    try{
+      fields(r.data,['status',...bindings]);
+      require(r.data.status==='active'&&bindings.every(k=>r.data[k]===state[k]));
+    }catch(error){if(error instanceof ClientError)throw httpError(error.code,r,phase);throw error;}
     if(mcp&&store)await store.save(keys,state);
     return {status:'active',provider_check:'not_checked',user_id:state.user_id,device_id:state.device_id,grant_id:state.grant_id};
   }
@@ -206,9 +218,9 @@ export class CommerceClient{
     await store.save(keys,{...state,rotation_in_flight:true});
     let tokenReceived=false;
     try{
-      const r=await this.request('/token',keys,'POST',new URLSearchParams({grant_type:'refresh_token',client_id:this.profile.client,refresh_token:state.refresh_token}).toString());
+      const r=await this.request('/token',keys,'POST',new URLSearchParams({grant_type:'refresh_token',client_id:this.profile.client,refresh_token:state.refresh_token}).toString(),undefined,'refresh');
       tokenReceived=true;
-      if(r.status!==200)throw new ClientError('login_required');
+      if(r.status!==200)throw httpError('remote_error',r,'refresh');
       const next=await this.validate(r.data,keys);
       require(['user_id','device_id','grant_id',...(this.profile.scope==='mcp:invoke'?['family_id','packet_id','wrapped_dek','wrapping_context','dek_generation']:[])].every(k=>next[k]===state[k]));
       await store.save(keys,next);return next;
@@ -220,24 +232,31 @@ export class CommerceClient{
         if(!tokenReceived)await store.save(keys,state);
         throw error;
       }
-      throw new ClientError('login_required','refresh_outcome_unknown');
+      const cause=error instanceof ClientError?error.code:'command_failed';
+      throw new ClientError('login_required','refresh_outcome_unknown',{
+        time_utc:new Date().toISOString(),elapsed_ms:error instanceof ClientError?error.details?.elapsed_ms:undefined,
+        ...(error instanceof ClientError?error.diagnostics:undefined),phase:'refresh',cause,
+      });
     }
   }
   async releaseJwks(){
-    const jwks=await this.request('/release-jwks');require(jwks.status===200);this.check();
+    const jwks=await this.request('/release-jwks');if(jwks.status!==200)throw httpError('invalid_response',jwks,'release-jwks');this.check();
     return jwks.data;
   }
   async sendMcp(keys,state,body,jwks,maxResponseBytes){
     this.check();
-    const request=mcpRequest(keys,state,jwks,body,this.now());
-    const response=await this.transport(this.profile.audience,{...request,signal:this.signal,...(maxResponseBytes===undefined?{}:{maxResponseBytes})});this.check();
-    serviceError(response,'error');return response;
+    try{
+      const request=mcpRequest(keys,state,jwks,body,this.now());
+      const response=await this.transport(this.profile.audience,{...request,signal:this.signal,...(maxResponseBytes===undefined?{}:{maxResponseBytes})});this.check();
+      if(response.status===401||response.status===503)serviceError(response,'error',mcpPhase(body));
+      return response;
+    }catch(error){throw diagnosticError(error,mcpPhase(body));}
   }
   async checkedSession(keys,state,store){
     const result=await this.protectedSession(keys,state,store);
     if(this.profile.scope!=='mcp:invoke')return result;
     const response=await this.sendMcp(keys,state,metadataBody(),await this.releaseJwks());
-    if(response.status!==200)throw new ClientError('remote_error');
+    if(response.status!==200)throw httpError('remote_error',response,'tools/list');
     return {...result,provider_check:'verified'};
   }
   // Keep the existing early-rotation margin for the Auth and provider path.

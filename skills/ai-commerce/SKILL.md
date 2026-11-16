@@ -22,6 +22,8 @@ global executable.
 
 - For first setup, browser authorization, secure-store issues or reconnecting,
   read [setup](references/setup.md).
+- For a failed command or a cloud/proxy connection issue, read
+  [troubleshooting](references/commands.md#troubleshooting).
 - For command options and exact-byte MCP requests, read
   [commands](references/commands.md).
 - For product selection, source identity, prices and presentation, read
