@@ -5,7 +5,7 @@ const responseReasons=new Set(['unexpected_http_status','unexpected_redirect','r
   'invalid_enrollment_format','enrollment_expired','enrollment_time_out_of_bounds','enrollment_binding_mismatch','enrollment_key_unwrap_failed']);
 export const safeRequestId=value=>typeof value==='string'&&/^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/i.test(value)?value:undefined;
 function safeDiagnostics(value) {
-  const {phase,time_utc,http_status,elapsed_ms,request_id,cause,reason,transport}=value??{};
+  const {phase,time_utc,http_status,elapsed_ms,attempt,ttfb_ms,request_id,cause,reason,transport}=value??{};
   const id=safeRequestId(request_id);
   const network=networkDetails(transport);
   const result={
@@ -13,6 +13,8 @@ function safeDiagnostics(value) {
     ...(typeof time_utc==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(time_utc)?{time_utc}:{}),
     ...(Number.isInteger(http_status)&&http_status>=100&&http_status<=599?{http_status}:{}),
     ...(Number.isSafeInteger(elapsed_ms)&&elapsed_ms>=0?{elapsed_ms}:{}),
+    ...(attempt===1||attempt===2?{attempt}:{}),
+    ...(Number.isInteger(http_status)&&http_status>=100&&http_status<=599&&Number.isSafeInteger(ttfb_ms)&&ttfb_ms>=0?{ttfb_ms}:{}),
     ...(id?{request_id:id}:{}),
     ...(responseReasons.has(reason)?{reason}:{}),
     ...(network?{transport:network}:{}),
@@ -25,7 +27,8 @@ export function diagnosticError(error,phase) {
   return error;
 }
 export function httpError(code,response,phase,reason) {
-  return diagnosticError(new ClientError(code,undefined,{http_status:response.status,request_id:response.requestId,elapsed_ms:response.elapsedMs,reason}),phase);
+  return diagnosticError(new ClientError(code,undefined,{http_status:response.status,request_id:response.requestId,elapsed_ms:response.elapsedMs,
+    attempt:response.attempt,ttfb_ms:response.ttfbMs,reason}),phase);
 }
 function networkDetails(value) {
   const {operation,stage,elapsed_ms,cause,delivery}=value??{};

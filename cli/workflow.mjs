@@ -1,9 +1,10 @@
 import {setTimeout as delay} from 'node:timers/promises';
+import {randomInt} from 'node:crypto';
 import {BASE,REDIRECT,profile,b64,decode,random,hash,sign,unwrap,dpop,verifyToken,mcpRequest} from './crypto.mjs';
 import {Storage,defaultDirectory} from './storage.mjs';
 import {join} from 'node:path';
 import {ClientError,publicError,diagnosticError,httpError} from './errors.mjs';
-import {requestJSON,assertEnvironment,tokenRequestWasNotSent} from './http.mjs';
+import {requestJSON,assertEnvironment,tokenRequestWasNotSent,discoveryAttempt} from './http.mjs';
 import {discoverTools,validateCompleteTools,mcpPhase} from './tool-discovery.mjs';
 import {inspectSecretProvider} from './secret-store.mjs';
 const require=(value)=>{if(!value)throw new ClientError('invalid_response');};
@@ -14,6 +15,7 @@ const enrollmentError=(response,reason)=>httpError('invalid_response',response,'
 const enrollmentCheck=response=>(value,reason='invalid_enrollment_format')=>{if(!value)throw enrollmentError(response,reason);};
 const terminal=new Set(['denied','failed','expired','completed','request_unavailable']);
 const metadataBody=()=>Buffer.from(JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list',params:{}}));
+const noRetry={run:fn=>fn()};
 // Called only for HTTP responses from the fixed Auth/MCP transport targets.
 // Never inspect successful business payloads or use remote message text.
 function serviceError(response,field,phase){
@@ -32,10 +34,10 @@ export class CommerceClient{
     this.profile=profile(profileName);this.directory=directory??join(defaultDirectory(),profileName);this.storageOptions=storageOptions??{};this.store=store??new Storage(this.directory,profileName,storageOptions);this.transport=transport;this.sleep=sleep;this.now=now;this.output=output;this.signal=signal;
   }
   check(){assertEnvironment();if(this.signal?.aborted)throw new ClientError('cancelled');}
-  async request(path,keys,method='GET',body,accessToken,phase=path.startsWith('/device/')?'enrollment':path.slice(1)){
+  async request(path,keys,method='GET',body,accessToken,phase=path.startsWith('/device/')?'enrollment':path.slice(1),attempt){
     this.check();const url=BASE+path;
     try{
-      const response=await this.transport(url,{method,signal:this.signal,headers:{...(keys?{DPoP:dpop(keys,method,url,accessToken,this.now())}:{}),...(body?{'content-type':typeof body==='string'?'application/x-www-form-urlencoded':'application/json'}:{}),...(accessToken?{authorization:`DPoP ${accessToken}`}:{})},body:body?typeof body==='string'?body:JSON.stringify(body):undefined});
+      const response=await this.transport(url,{...attempt,method,signal:this.signal,headers:{...(keys?{DPoP:dpop(keys,method,url,accessToken,this.now())}:{}),...(body?{'content-type':typeof body==='string'?'application/x-www-form-urlencoded':'application/json'}:{}),...(accessToken?{authorization:`DPoP ${accessToken}`}:{})},body:body?typeof body==='string'?body:JSON.stringify(body):undefined});
       this.check();serviceError(response,'code',phase);return response;
     }catch(error){throw diagnosticError(error,phase);}
   }
@@ -51,6 +53,23 @@ export class CommerceClient{
     },options);
   }
   async pause(seconds){this.check();try{await this.sleep(seconds*1000,undefined,{signal:this.signal});}catch(e){this.check();throw e;}this.check();}
+  #discovery(state){
+    // One resend for the entire command, not one per endpoint or page.
+    let used=false;
+    return {run:async fn=>{
+      try{return await fn(discoveryAttempt(1));}
+      catch(error){
+        this.check();
+        if(used||!(error instanceof ClientError)||error.code!=='network_error'
+          ||error.diagnostics?.http_status!==undefined||error.details?.stage!=='request'
+          ||!['timeout','reset'].includes(error.details.cause)||state.expires_at<=this.now())throw error;
+        used=true;
+        await this.pause(randomInt(200,501)/1000);
+        if(state.expires_at<=this.now())throw error;
+        return fn(discoveryAttempt(2));
+      }
+    }};
+  }
   async login() {
     return this.withCustody(async store=>{
       this.check();
@@ -207,10 +226,10 @@ export class CommerceClient{
       && state.wrap_jkt===keys.wrapJkt && opaque(state.refresh_token));
     return {keys,state};
   }
-  async protectedSession(keys,state,store){
+  async protectedSession(keys,state,store,discovery=noRetry){
     const mcp=this.profile.scope==='mcp:invoke';
     const phase=mcp?'mcp-session':'session';
-    const r=await this.request('/'+phase,keys,'GET',undefined,state.access_token);
+    const r=await discovery.run(attempt=>this.request('/'+phase,keys,'GET',undefined,state.access_token,phase,attempt));
     if(r.status!==200)throw httpError('invalid_response',r,phase);
     const bindings=['user_id','device_id','grant_id',...(mcp?['family_id','packet_id','wrapped_dek','wrapping_context','dek_generation']:[])];
     try{
@@ -252,52 +271,54 @@ export class CommerceClient{
       });
     }
   }
-  async releaseJwks(){
-    const jwks=await this.request('/release-jwks');if(jwks.status!==200)throw httpError('invalid_response',jwks,'release-jwks');this.check();
+  async releaseJwks(discovery=noRetry){
+    const jwks=await discovery.run(attempt=>this.request('/release-jwks',undefined,'GET',undefined,undefined,'release-jwks',attempt));if(jwks.status!==200)throw httpError('invalid_response',jwks,'release-jwks');this.check();
     return jwks.data;
   }
-  async sendMcp(keys,state,body,jwks,maxResponseBytes){
+  async sendMcp(keys,state,body,jwks,maxResponseBytes,attempt){
     this.check();
     try{
       const request=mcpRequest(keys,state,jwks,body,this.now());
-      const response=await this.transport(this.profile.audience,{...request,signal:this.signal,...(maxResponseBytes===undefined?{}:{maxResponseBytes})});this.check();
+      const response=await this.transport(this.profile.audience,{...request,...attempt,signal:this.signal,...(maxResponseBytes===undefined?{}:{maxResponseBytes})});this.check();
       if(response.status===401||response.status===503)serviceError(response,'error',mcpPhase(body));
       return response;
     }catch(error){throw diagnosticError(error,mcpPhase(body));}
   }
-  async checkedSession(keys,state,store){
-    const result=await this.protectedSession(keys,state,store);
+  async checkedSession(keys,state,store,discovery=noRetry){
+    const result=await this.protectedSession(keys,state,store,discovery);
     if(this.profile.scope!=='mcp:invoke')return result;
-    const response=await this.sendMcp(keys,state,metadataBody(),await this.releaseJwks());
+    const body=metadataBody(),jwks=await this.releaseJwks(discovery);
+    const response=await discovery.run(attempt=>this.sendMcp(keys,state,body,jwks,undefined,attempt));
     if(response.status!==200)throw httpError('remote_error',response,'tools/list');
     return {...result,provider_check:'verified'};
   }
   // Keep the existing early-rotation margin for the Auth and provider path.
   // This is an early rotation, never an automatic retry of a failed request.
-  async session(){return this.withCustody(async store=>{let {keys,state}=await this.load(store);if(state.expires_at<=this.now()+90)state=await this.rotate(store,keys,state);return this.checkedSession(keys,state,store);},{create:false});}
+  async session(){return this.withCustody(async store=>{let {keys,state}=await this.load(store);if(state.expires_at<=this.now()+90)state=await this.rotate(store,keys,state);return this.checkedSession(keys,state,store,this.profile.scope==='mcp:invoke'?this.#discovery(state):noRetry);},{create:false});}
   async refresh(){return this.withCustody(async store=>{const {keys,state}=await this.load(store);return this.checkedSession(keys,await this.rotate(store,keys,state),store);},{create:false});}
-  async withMcpPreflight(callback){
+  async #withMcpPreflight(callback,discover=false){
     require(this.profile.scope==='mcp:invoke');
     return this.withCustody(async store=>{
       let {keys,state}=await this.load(store);
       if(state.expires_at<=this.now()+90)state=await this.rotate(store,keys,state);
-      await this.protectedSession(keys,state,store);
-      return callback(keys,state,await this.releaseJwks());
+      const discovery=discover?this.#discovery(state):noRetry;
+      await this.protectedSession(keys,state,store,discovery);
+      return callback(keys,state,await this.releaseJwks(discovery),discovery);
     },{create:false});
   }
   async mcp(body){
     require(Buffer.isBuffer(body)&&body.length<=262144);
-    return this.withMcpPreflight(async(keys,state,jwks)=>publicMcpResponse(await this.sendMcp(keys,state,body,jwks),state));
+    return this.#withMcpPreflight(async(keys,state,jwks)=>publicMcpResponse(await this.sendMcp(keys,state,body,jwks),state));
   }
   async logout(){this.check();return this.store.withLock(async store=>{await store?.logout();return {status:'signed_out'};},{create:false});}
   async doctor(){this.check();return {runtime:{node:process.versions.node,supported:Number(process.versions.node.split('.')[0])===24},profile:this.profile.scope==='mcp:invoke'?'mcp':'diagnostic',storage:await inspectSecretProvider({...this.storageOptions,directory:this.directory}),network:'not_checked'};}
   async tools(){
-    return this.withMcpPreflight(async(keys,state,jwks)=>{
-      const response=await discoverTools((body,remaining)=>this.sendMcp(keys,state,body,jwks,remaining));
+    return this.#withMcpPreflight(async(keys,state,jwks,discovery)=>{
+      const response=await discoverTools((body,remaining)=>discovery.run(attempt=>this.sendMcp(keys,state,body,jwks,remaining,attempt)));
       let safe;try{safe=publicMcpResponse(response,state);}catch{throw new ClientError('invalid_response');}
       validateCompleteTools(safe.data);
       return safe;
-    });
+    },true);
   }
   async status(){this.check();return this.store.withLock(async store=>{if(!store)return {status:'signed_out'};const keys=await store.keys(false);if(!keys)return {status:'signed_out'};if(await store.blocked(keys)){const {code,...action}=publicError(new ClientError('device_deactivated'));return {status:code,...action};}const s=await store.session(keys);if(!s)return {status:'signed_out'};return {status:s.rotation_in_flight?'login_required':s.expires_at<=this.now()?'expired':'stored',...(s.rotation_in_flight?{reason:'refresh_outcome_unknown',next_action:'login'}:{user_id:s.user_id,device_id:s.device_id,grant_id:s.grant_id})};},{create:false});}
 }

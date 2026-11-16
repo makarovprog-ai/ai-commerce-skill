@@ -1,6 +1,11 @@
 import {ClientError,safeRequestId} from './errors.mjs';
 import {isToolListRequest,MAX_DISCOVERY_BYTES} from './tool-discovery.mjs';
 
+// Only trusted workflow code opts in; RPC classification affects defaults, not discovery retry.
+const DISCOVERY=Symbol('CLI-owned discovery');
+export const discoveryAttempt=attempt=>({[DISCOVERY]:attempt});
+const DISCOVERY_TIMEOUT_MS=20_000;
+
 // Only this transport can attest that it never handed token bytes to HTTP.
 // Neither error text nor a response's JSON is delivery evidence.
 const unsentTokenFailures=new WeakSet();
@@ -57,6 +62,7 @@ export function publicPeer(value) {
 // Import-only local synthetic test seam; no environment or command-line routing.
 export async function requestJSON(value,options={},testTransport={}) {
   assertEnvironment();const canonical=allowedURL(value),headers={...options.headers};
+  const attempt=options[DISCOVERY];
   const tokenPost=canonical.pathname==='/sberid-auth/token'&&options.method==='POST';
   if(Object.keys(headers).some(k=>['cookie','x-csrf-token','host'].includes(k.toLowerCase())))throw new ClientError('invalid_request');
   // Node can flush an Expect request's headers before end().
@@ -70,12 +76,14 @@ export async function requestJSON(value,options={},testTransport={}) {
   if(destination.protocol!=='https:'&&!(testTransport.mapURL&&destination.protocol==='http:'&&destination.hostname==='127.0.0.1'))throw new ClientError('invalid_target');
   const secure=destination.protocol==='https:';
   const start=performance.now();
+  const elapsed=()=>Math.floor(performance.now()-start);
+  const attemptMetadata=attempt===undefined?undefined:{attempt};
   let stage='request',httpMetadata,requestStarted=false;
   const failure=cause=>{
     const notSent=tokenPost&&!requestStarted&&stage==='request';
     const error=options.signal?.aborted?new ClientError('cancelled'):new ClientError('network_error',{
-      operation,stage,elapsed_ms:Math.floor(performance.now()-start),cause,...(notSent?{delivery:'not_sent'}:{})
-    },httpMetadata);
+      operation,stage,elapsed_ms:elapsed(),cause,...(notSent?{delivery:'not_sent'}:{})
+    },attemptMetadata?{...attemptMetadata,...httpMetadata}:httpMetadata);
     return notSent?unsent(error):error;
   };
   if(options.signal?.aborted)throw failure('other');
@@ -83,7 +91,7 @@ export async function requestJSON(value,options={},testTransport={}) {
   try{transport=secure?await import('node:https'):await import('node:http');}
   catch(error){throw failure(error?.code==='ERR_PROXY_INVALID_CONFIG'||(secure&&(process.env.https_proxy||process.env.HTTPS_PROXY))?'proxy':'other');}
   if(options.signal?.aborted)throw failure('other');
-  const timeout=testTransport.timeoutMs??(operation==='mcp_request'?180000:15000);
+  const timeout=testTransport.timeoutMs??(attemptMetadata?DISCOVERY_TIMEOUT_MS:operation==='mcp_request'?180000:15000);
   return new Promise((resolve,reject)=>{
     let timer,agent,onAbort,settled=false;
     const finish=(error,value)=>{
@@ -98,8 +106,8 @@ export async function requestJSON(value,options={},testTransport={}) {
     const req=transport.default.request(destination,{method:options.method||'GET',headers,rejectUnauthorized:true,agent,...(agent?{timeout}:{signal:options.signal})},res=>{
       stage='response_body';
       const requestId=safeRequestId(res.headers['x-request-id']);
-      httpMetadata={http_status:res.statusCode,request_id:requestId};
-      const elapsed=()=>Math.floor(performance.now()-start);
+      const ttfbMs=attemptMetadata?(httpMetadata?.ttfb_ms??elapsed()):undefined;
+      httpMetadata={http_status:res.statusCode,request_id:requestId,...(attemptMetadata?{attempt,ttfb_ms:ttfbMs}:{})};
       const invalid=reason=>new ClientError('invalid_response',undefined,{...httpMetadata,elapsed_ms:elapsed(),reason});
       if(res.statusCode>=300&&res.statusCode<400){finish(invalid('unexpected_redirect'));res.destroy();return;}
       let tls;
@@ -113,13 +121,25 @@ export async function requestJSON(value,options={},testTransport={}) {
       res.on('data',chunk=>{size+=chunk.length;if(size>limit){finish(invalid('response_too_large'));req.destroy();return;}chunks.push(chunk);});
       res.on('end',()=>{
         if(!(res.headers['content-type']||'').toLowerCase().startsWith('application/json')){finish(invalid('unexpected_content_type'));return;}
-        try{finish(null,{status:res.statusCode,data:JSON.parse(Buffer.concat(chunks,size)),retryAfter:res.headers['retry-after'],responseBytes:size,requestId,elapsedMs:elapsed()});}
+        try{finish(null,{status:res.statusCode,data:JSON.parse(Buffer.concat(chunks,size)),retryAfter:res.headers['retry-after'],responseBytes:size,requestId,elapsedMs:elapsed(),
+          ...(attemptMetadata?{attempt,ttfbMs}:{})});}
         catch{finish(invalid('invalid_json'));}
       });
       res.on('error',error=>finish(failure(transportCause(error))));res.on('aborted',()=>finish(failure('reset')));
     });
     timer=setTimeout(()=>{finish(failure('timeout'));req.destroy();},timeout);
     req.on('error',error=>finish(failure(transportCause(error))));
+    if(attemptMetadata){
+      // Even interim response headers make a loss ineligible for resend.
+      req.on('information',info=>{httpMetadata??={http_status:info.statusCode,ttfb_ms:elapsed()};});
+      // Node dispatches 101 separately from ordinary HTTP responses.
+      req.on('upgrade',(res,socket)=>{
+        finish(new ClientError('invalid_response',undefined,{attempt,http_status:res.statusCode,
+          request_id:res.headers['x-request-id'],ttfb_ms:httpMetadata?.ttfb_ms??elapsed(),
+          elapsed_ms:elapsed(),reason:'unexpected_http_status'}));
+        socket.destroy();
+      });
+    }
     // ClientRequest's abort handling cannot close a pending proxy connection.
     if(agent&&options.signal){
       onAbort=()=>{finish(failure('other'));req.destroy();};
