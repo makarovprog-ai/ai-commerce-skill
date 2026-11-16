@@ -77,7 +77,9 @@ it checks no session, doesn't read custody, and doesn't run a tool or updater.
 It reports CLI/Node versions, UTC time, HTTP status and validated peer certificate
 metadata when available. `proxy_env_configured` reports only whether an HTTPS
 proxy environment variable is set, not whether the request went through it. The
-probe does not enable proxies, change trust, or follow redirects. TLS/HTTP success
+CLI respects `HTTPS_PROXY`/`https_proxy` and `NO_PROXY`/`no_proxy`, keeps TLS
+verification enabled, and does not fall back to direct connections on proxy
+errors. The probe does not change trust or follow redirects. TLS/HTTP success
 doesn't prove that authenticated MCP works. Inspect the HTTP status even for a
 completed probe. Do not run this probe before every operation or swap transports
 to make errors disappear.

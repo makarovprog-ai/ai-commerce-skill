@@ -30,7 +30,7 @@ export function httpError(code,response,phase,reason) {
 function networkDetails(value) {
   const {operation,stage,elapsed_ms,cause,delivery}=value??{};
   if(['auth','mcp_metadata','mcp_request'].includes(operation)&&['request','response_body'].includes(stage)
-    &&Number.isSafeInteger(elapsed_ms)&&elapsed_ms>=0&&['timeout','dns','connect','tls','reset','other'].includes(cause))return {operation,stage,elapsed_ms,cause,...(delivery==='not_sent'?{delivery}:{})};
+    &&Number.isSafeInteger(elapsed_ms)&&elapsed_ms>=0&&['timeout','dns','connect','tls','proxy','reset','other'].includes(cause))return {operation,stage,elapsed_ms,cause,...(delivery==='not_sent'?{delivery}:{})};
 }
 export class ClientError extends Error {
   constructor(code,reason,diagnostics) { const safe = codes.has(code) ? code : 'command_failed'; super(safe); this.name = 'ClientError'; this.code = safe;

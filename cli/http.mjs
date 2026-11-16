@@ -1,5 +1,3 @@
-import https from 'node:https';
-import http from 'node:http';
 import {ClientError,safeRequestId} from './errors.mjs';
 import {isToolListRequest,MAX_DISCOVERY_BYTES} from './tool-discovery.mjs';
 
@@ -12,6 +10,7 @@ function unsent(error){unsentTokenFailures.add(error);return error;}
 function transportCause(error) {
   const code=error?.code;
   if(code==='ETIMEDOUT'||code==='ESOCKETTIMEDOUT')return 'timeout';
+  if(code==='ERR_PROXY_TUNNEL')return error.proxyTunnelTimeout?'timeout':'proxy';
   if(code==='ENOTFOUND'||code==='EAI_AGAIN')return 'dns';
   if(['ECONNREFUSED','ENETUNREACH','EHOSTUNREACH','EADDRNOTAVAIL'].includes(code))return 'connect';
   if(['ECONNRESET','ECONNABORTED','EPIPE'].includes(code))return 'reset';
@@ -21,6 +20,26 @@ function transportCause(error) {
 
 export function assertEnvironment(env=process.env) {
   if ((env.NODE_TLS_REJECT_UNAUTHORIZED!==undefined && env.NODE_TLS_REJECT_UNAUTHORIZED!=='1') || env.NODE_OPTIONS) throw new ClientError('unsafe_environment');
+  // Reject debug before Node networking modules load: the native global agent
+  // can log proxy credentials during initialization, even without a request.
+  if((env.https_proxy||env.HTTPS_PROXY)&&(env.NODE_DEBUG||env.NODE_DEBUG_NATIVE))throw new ClientError('unsafe_environment');
+}
+function httpsProxyAgent(Agent,env=process.env) {
+  const proxy=env.https_proxy||env.HTTPS_PROXY;
+  if(!proxy)return false;
+  const [major,minor]=process.versions.node.split('.').map(Number);
+  if(major<24||(major===24&&minor<5))throw new ClientError('unsafe_environment');
+  try{
+    if(!/^https?:\/\//i.test(proxy)||/[\s\x00-\x1f\x7f]/.test(proxy))return null;
+    const url=new URL(proxy);
+    if(!url.hostname||url.pathname!=='/'||url.search||url.hash)return null;
+    return new class extends Agent {
+      // Node tracks the CONNECT socket only after origin TLS completes.
+      createConnection(options,callback){this.connection=super.createConnection(options,callback);return this.connection;}
+      destroy(){super.destroy();this.connection?.destroy();}
+    }({keepAlive:false,rejectUnauthorized:true,
+      proxyEnv:{https_proxy:url.href,no_proxy:env.no_proxy||env.NO_PROXY}});
+  }catch{return null;} // Never emit the proxy URL or silently connect directly.
 }
 export function allowedURL(value) {
   let u;try { u=new URL(value); } catch { throw new ClientError('invalid_target'); }
@@ -49,19 +68,34 @@ export async function requestJSON(value,options={},testTransport={}) {
   const limit=mcp?Math.min(MAX_DISCOVERY_BYTES,options.maxResponseBytes??MAX_DISCOVERY_BYTES):65536;
   const destination=testTransport.mapURL?new URL(testTransport.mapURL(value)):canonical;
   if(destination.protocol!=='https:'&&!(testTransport.mapURL&&destination.protocol==='http:'&&destination.hostname==='127.0.0.1'))throw new ClientError('invalid_target');
-  if(options.signal?.aborted){const error=new ClientError('cancelled');throw tokenPost?unsent(error):error;}
+  const secure=destination.protocol==='https:';
+  const start=performance.now();
+  let stage='request',httpMetadata,requestStarted=false;
+  const failure=cause=>{
+    const notSent=tokenPost&&!requestStarted&&stage==='request';
+    const error=options.signal?.aborted?new ClientError('cancelled'):new ClientError('network_error',{
+      operation,stage,elapsed_ms:Math.floor(performance.now()-start),cause,...(notSent?{delivery:'not_sent'}:{})
+    },httpMetadata);
+    return notSent?unsent(error):error;
+  };
+  if(options.signal?.aborted)throw failure('other');
+  let transport;
+  try{transport=secure?await import('node:https'):await import('node:http');}
+  catch(error){throw failure(error?.code==='ERR_PROXY_INVALID_CONFIG'||(secure&&(process.env.https_proxy||process.env.HTTPS_PROXY))?'proxy':'other');}
+  if(options.signal?.aborted)throw failure('other');
+  const timeout=testTransport.timeoutMs??(operation==='mcp_request'?180000:15000);
   return new Promise((resolve,reject)=>{
-    const start=performance.now();
-    let timer,settled=false,stage='request',httpMetadata,requestStarted=false;
-    const finish=(error,value)=>{if(settled)return;settled=true;clearTimeout(timer);error?reject(error):resolve(value);};
-    const failure=cause=>{
-      const notSent=tokenPost&&!requestStarted&&stage==='request';
-      const error=options.signal?.aborted?new ClientError('cancelled'):new ClientError('network_error',{
-        operation,stage,elapsed_ms:Math.floor(performance.now()-start),cause,...(notSent?{delivery:'not_sent'}:{})
-      },httpMetadata);
-      return notSent?unsent(error):error;
+    let timer,agent,onAbort,settled=false;
+    const finish=(error,value)=>{
+      if(settled)return;settled=true;clearTimeout(timer);
+      if(onAbort)options.signal.removeEventListener('abort',onAbort);
+      if(agent)agent.destroy();
+      error?reject(error):resolve(value);
     };
-    const req=(destination.protocol==='https:'?https:http).request(destination,{method:options.method||'GET',headers,rejectUnauthorized:true,agent:false,signal:options.signal},res=>{
+    try{agent=secure?httpsProxyAgent(transport.Agent):false;}
+    catch(error){finish(tokenPost?unsent(error):error);return;}
+    if(agent===null){finish(failure('proxy'));return;}
+    const req=transport.default.request(destination,{method:options.method||'GET',headers,rejectUnauthorized:true,agent,...(agent?{timeout}:{signal:options.signal})},res=>{
       stage='response_body';
       const requestId=safeRequestId(res.headers['x-request-id']);
       httpMetadata={http_status:res.statusCode,request_id:requestId};
@@ -84,8 +118,14 @@ export async function requestJSON(value,options={},testTransport={}) {
       });
       res.on('error',error=>finish(failure(transportCause(error))));res.on('aborted',()=>finish(failure('reset')));
     });
-    timer=setTimeout(()=>{finish(failure('timeout'));req.destroy();},testTransport.timeoutMs??(operation==='mcp_request'?180000:15000));
+    timer=setTimeout(()=>{finish(failure('timeout'));req.destroy();},timeout);
     req.on('error',error=>finish(failure(transportCause(error))));
+    // ClientRequest's abort handling cannot close a pending proxy connection.
+    if(agent&&options.signal){
+      onAbort=()=>{finish(failure('other'));req.destroy();};
+      options.signal.addEventListener('abort',onAbort,{once:true});
+      if(options.signal.aborted){onAbort();return;}
+    }
     if(tokenPost){
       // Do not queue token headers or body in Node/TLS while connecting.
       // From the first call to end(), even a reset without headers is ambiguous.
