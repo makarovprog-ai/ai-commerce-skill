@@ -1,12 +1,12 @@
 import {mkdtemp,rm,readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {install,safePath,regularFile,UpdateRecoveryError} from './install.mjs';
-import {latestRelease,runGit,compareVersions} from './release.mjs';
+import {latestRelease,runGit,compareVersions,EXPLICIT_RELEASE_LOOKUP_MS} from './release.mjs';
 
 export async function updateInstalled(config,{latest=latestRelease,run=runGit}={}){
   const root=join(config.home,'.local/share/ai-commerce');await safePath(root);
   try{await regularFile(join(root,'update-transaction.json'));throw new UpdateRecoveryError();}catch(error){if(error.code!=='ENOENT')throw error;}
-  const release=await latest(config.origin);
+  const release=await latest(config.origin,{timeout:EXPLICIT_RELEASE_LOOKUP_MS});
   if(compareVersions(release.version,config.version)<=0)return {status:'up_to_date',current_version:config.version};
   const stage=await mkdtemp(join(root,'.release-'));
   try{

@@ -31,6 +31,25 @@ test('release discovery rejects unsafe sources and selects stable semver tags ra
  assert.deepEqual(await mod.latestRelease('git@example.test:org/repo.git',{run}),{version:'0.10.0',commit:'d'.repeat(40),tag:'v0.10.0'});
  assert.ok(calls[0].args.includes('ls-remote'));assert.ok(calls[0].options.timeout<=3000);
 });
+test('explicit install and check allow a slow tag query while the routine check stays bounded',async t=>{
+ const {checkUpdate}=await import('../cli/updates.mjs');
+ const {latestRelease}=await import('../scripts/lib/release.mjs');
+ const {updateInstalled}=await import('../scripts/lib/update.mjs');
+ const home=await mkdtemp(join(await realpath(tmpdir()),'commerce-update-timeout-'));
+ t.after(()=>rm(home,{recursive:true,force:true}));
+ const root=join(home,'.local/share/ai-commerce');await mkdir(root,{recursive:true});
+ const config={home,origin:'git@example.test:org/repo.git',version:'0.4.6'};
+ const budgets=[];
+ const latest=(origin,opts)=>latestRelease(origin,{...opts,run:async(_args,{timeout})=>{
+  budgets.push(timeout);if(timeout<4000)throw Error('synthetic timeout');
+  return `${'a'.repeat(40)}\trefs/tags/v0.4.6\n`;
+ }});
+ const params={root,load:async()=>config,latest};
+ assert.deepEqual(await checkUpdate(params),{status:'unavailable'});
+ assert.equal((await checkUpdate({...params,explicit:true})).status,'up_to_date');
+ assert.equal((await updateInstalled(config,{latest})).status,'up_to_date');
+ assert.deepEqual(budgets,[3000,15000,15000]);
+});
 test('bad or linked update cache is silent and never overwritten or followed',async t=>{
  const {checkUpdate}=await import('../cli/updates.mjs');
  const root=await mkdtemp(join(await realpath(tmpdir()),'commerce-bad-cache-'));t.after(()=>rm(root,{recursive:true,force:true}));

@@ -3,7 +3,7 @@ import {BASE,REDIRECT,profile,b64,decode,random,hash,sign,unwrap,dpop,verifyToke
 import {Storage,defaultDirectory} from './storage.mjs';
 import {join} from 'node:path';
 import {ClientError,publicError,diagnosticError,httpError} from './errors.mjs';
-import {requestJSON,assertEnvironment} from './http.mjs';
+import {requestJSON,assertEnvironment,tokenRequestWasNotSent} from './http.mjs';
 import {discoverTools,validateCompleteTools,mcpPhase} from './tool-discovery.mjs';
 import {inspectSecretProvider} from './secret-store.mjs';
 const require=(value)=>{if(!value)throw new ClientError('invalid_response');};
@@ -222,8 +222,10 @@ export class CommerceClient{
   }
   async rotate(store,keys,state){
     await store.save(keys,{...state,rotation_in_flight:true});
-    let tokenReceived=false;
+    let tokenRequested=false,tokenReceived=false;
     try{
+      this.check();
+      tokenRequested=true;
       const r=await this.request('/token',keys,'POST',new URLSearchParams({grant_type:'refresh_token',client_id:this.profile.client,refresh_token:state.refresh_token}).toString(),undefined,'refresh');
       tokenReceived=true;
       if(r.status!==200)throw httpError('remote_error',r,'refresh');
@@ -231,6 +233,10 @@ export class CommerceClient{
       require(['user_id','device_id','grant_id',...(this.profile.scope==='mcp:invoke'?['family_id','packet_id','wrapped_dek','wrapping_context','dek_generation']:[])].every(k=>next[k]===state[k]));
       await store.save(keys,next);return next;
     }catch(error){
+      if(!tokenReceived&&(!tokenRequested||tokenRequestWasNotSent(error))){
+        await store.save(keys,state);
+        throw diagnosticError(error,'refresh');
+      }
       if(error instanceof ClientError&&error.code==='device_deactivated')throw error;
       if(error instanceof ClientError&&error.code==='sberid_check_in_progress'){
         // A definitive pre-rotation busy response is not an ambiguous rotation.
@@ -242,6 +248,7 @@ export class CommerceClient{
       throw new ClientError('login_required','refresh_outcome_unknown',{
         time_utc:new Date().toISOString(),elapsed_ms:error instanceof ClientError?error.details?.elapsed_ms:undefined,
         ...(error instanceof ClientError?error.diagnostics:undefined),phase:'refresh',cause,
+        transport:error instanceof ClientError?error.details:undefined,
       });
     }
   }

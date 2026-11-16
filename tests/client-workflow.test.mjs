@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CommerceClient} from '../cli/workflow.mjs';
+import {ClientError} from '../cli/errors.mjs';
 import {syntheticProtocol} from './fixtures/protocol.mjs';
 test('complete synthetic enrollment proves keys, PKCE and signed JWT then transmits exact unknown-operation bytes',async()=>{
  const f=syntheticProtocol(),client=new CommerceClient(f);const result=await client.login();assert.equal(result.status,'active');
@@ -22,6 +23,18 @@ test('concurrent expired sessions rotate only once under custody lock',async()=>
 test('ambiguous rotation durably requires login and cannot retry old refresh token',async()=>{
  const f=syntheticProtocol(),client=new CommerceClient(f);await client.login();f.failRefresh();await assert.rejects(client.refresh(),{code:'login_required'});assert.equal(f.state.rotation_in_flight,true);
  await assert.rejects(client.refresh(),{code:'login_required'});await assert.rejects(client.mcp(Buffer.from('{}')),{code:'login_required'});assert.equal(f.refreshes,1);
+});
+test('network failure validating new credentials cannot restore a refresh token after a token response',async()=>{
+ const f=syntheticProtocol();await new CommerceClient(f).login();f.advance(301);
+ const transport=(url,options)=>{
+  if(url.endsWith('/jwks'))throw new ClientError('network_error',{operation:'auth',stage:'request',elapsed_ms:9,cause:'dns',delivery:'not_sent'});
+  return f.transport(url,options);
+ };
+ const client=new CommerceClient({...f,transport});
+ await assert.rejects(client.tools(),{code:'login_required',reason:'refresh_outcome_unknown'});
+ assert.equal(f.state.rotation_in_flight,true);
+ await assert.rejects(client.tools(),{code:'login_required',reason:'refresh_outcome_unknown'});
+ assert.equal(f.refreshes,1);
 });
 test('missing state and ambiguous refresh have different safe recovery reasons',async()=>{
  const f=syntheticProtocol(),client=new CommerceClient(f);

@@ -60,7 +60,11 @@ signature check failed from `401` alone.
   guess a state path, move a vault, or switch profiles to bypass a service error.
 - `refresh_outcome_unknown` preserves a guard against replaying the old refresh.
   Do not retry it or remove its marker. If access must be restored, use normal
-  browser login. `device_deactivated` has its existing reconnect instruction.
+  browser login. `diagnostics.transport` may include safe network details.
+  A refresh `network_error` with `details.delivery:not_sent` instead confirms
+  the CLI did not send the token request. Keep the saved session, do not request
+  login, and stop the current operation without trying it again automatically.
+  `device_deactivated` has its existing reconnect instruction.
 - A generic `401` during `tools/list` after successful preflight is not proof of
   session expiry. Report the failing stage and stop that operation; don't start
   login or a search as a diagnostic. After an uncertain stateful call, check the
@@ -188,6 +192,8 @@ and state directory for subsequent authorized tasks. Do not run login, refresh
 or an online session check to finish an update, or retry a purchase because of
 an update. An old installation needs a one-time explicit
 installer upgrade before it can check automatically.
+Explicit `update check` and `update install` allow 15 seconds to look up release
+tags; ordinary use still has a 3-second, silent update probe.
 If installation reports `update_failed` with `reason:recovery_required`, say that
 restoration is unconfirmed. Keep the journal/backups and stop commerce/update
 commands until the installation is repaired; do not claim the old version works.

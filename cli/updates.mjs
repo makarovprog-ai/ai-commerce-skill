@@ -3,7 +3,7 @@ import {dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {safePath,regularFile} from '../scripts/lib/install.mjs';
-import {latestRelease,compareVersions,validateOrigin} from '../scripts/lib/release.mjs';
+import {latestRelease,compareVersions,validateOrigin,EXPLICIT_RELEASE_LOOKUP_MS} from '../scripts/lib/release.mjs';
 import {updateInstalled} from '../scripts/lib/update.mjs';
 
 export async function installedMetadata(directory){
@@ -26,7 +26,7 @@ export async function checkUpdate({root,load,latest=latestRelease,now=Date.now,e
     const save=async()=>{const temp=join(root,`.update-check-${randomUUID()}`);try{await writeFile(temp,JSON.stringify(cache),{flag:'wx',mode:0o600});await rename(temp,cachePath);}finally{await rm(temp,{force:true});}};
     if(explicit||!Number.isFinite(cache.last_attempt_at)||at-cache.last_attempt_at>=86400000||at<cache.last_attempt_at){
       cache.last_attempt_at=at;cache.status='unavailable';delete cache.release;await save();
-      try{const release=await latest(installed.origin);cache.release=release;cache.status=compareVersions(release.version,installed.version)>0?'available':'up_to_date';cache.last_success_at=at;}catch{}
+      try{const release=await latest(installed.origin,explicit?{timeout:EXPLICIT_RELEASE_LOOKUP_MS}:undefined);cache.release=release;cache.status=compareVersions(release.version,installed.version)>0?'available':'up_to_date';cache.last_success_at=at;}catch{}
       await save();
     }
     if(cache.status==='available'&&cache.release){

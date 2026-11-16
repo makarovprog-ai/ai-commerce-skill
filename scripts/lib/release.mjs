@@ -2,6 +2,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 
 const execute=promisify(execFile);
+export const EXPLICIT_RELEASE_LOOKUP_MS=15000;
 export function validateOrigin(value){
   if(typeof value!=='string'||value.length>2048||/[\s\x00-\x1f\x7f]/.test(value))throw Error('Invalid update source');
   if(/^git@[A-Za-z0-9.-]+:[A-Za-z0-9_.\/-]+\.git$/.test(value)&&!value.includes('..'))return value;
@@ -19,8 +20,8 @@ export async function runGit(args,{cwd,timeout=3000}={}){
   }catch{throw Error('Update source unavailable');}
 }
 export function compareVersions(a,b){const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<3;i++)if(x[i]!==y[i])return x[i]<y[i]?-1:1;return 0;}
-export async function latestRelease(origin,{run=runGit}={}){
-  validateOrigin(origin);const text=await run(['ls-remote','--tags','--',origin,'refs/tags/v*'],{timeout:3000});const releases=new Map();
+export async function latestRelease(origin,{run=runGit,timeout=3000}={}){
+  validateOrigin(origin);const text=await run(['ls-remote','--tags','--',origin,'refs/tags/v*'],{timeout});const releases=new Map();
   for(const line of text.split('\n')){const m=/^([a-f0-9]{40,64})\s+refs\/tags\/v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))(\^\{\})?$/.exec(line);if(!m||m[2].split('.').some(n=>!Number.isSafeInteger(Number(n))))continue;
     if(!releases.has(m[2])||m[3])releases.set(m[2],{version:m[2],commit:m[1],tag:`v${m[2]}`});
   }

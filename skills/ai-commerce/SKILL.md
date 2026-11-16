@@ -40,6 +40,8 @@ profile and state location, confirmed deactivation, or unresolved refresh outcom
 An install, update or skill reload is not a sign-in request.
 For `refresh_outcome_unknown`, explain that access could not safely be restored,
 not that the bank revoked it; never retry the old refresh or delete its marker.
+A refresh `network_error` with `details.delivery:not_sent` keeps the saved
+session. Report the connection failure; do not ask for login or retry automatically.
 Show the browser link and four-symbol comparison,
 then let the user approve in their browser. Never request credentials or tokens
 in chat. Keep the default `mcp` profile unless a deliberate diagnostic task needs
