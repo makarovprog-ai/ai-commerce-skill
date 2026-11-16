@@ -42,5 +42,5 @@ export function publicError(error) {
   const reason=code==='login_required'&&['session_missing','refresh_outcome_unknown'].includes(error.reason)?error.reason:undefined;
   const details=code==='network_error'?networkDetails(error.details):undefined;
   const diagnostics=error instanceof ClientError?safeDiagnostics(error.diagnostics):undefined;
-  return {code,...(details?{details}:{}),...(diagnostics?{diagnostics}:{}),...(reason?{reason,next_action:'login'}:{}),...(code==='device_deactivated'?{message:deactivatedMessage,next_action:'login'}:{}),...(code==='secret_provider_unavailable'?{next_action:'Run doctor; check OS secure-store prerequisites and host script policy. Do not weaken execution policy. Use an approved inherited passphrase FD only when appropriate.'}:{})};
+  return {code,...(details?{details}:{}),...(diagnostics?{diagnostics}:{}),...(reason?{reason,next_action:reason==='session_missing'?'check_session_context':'login'}:{}),...(code==='device_deactivated'?{message:deactivatedMessage,next_action:'login'}:{}),...(code==='secret_provider_unavailable'?{next_action:'Run doctor; check OS secure-store prerequisites and host script policy. Do not weaken execution policy. Use an approved inherited passphrase FD only when appropriate.'}:{})};
 }

@@ -5,12 +5,16 @@ import {tmpdir} from 'node:os';
 import {join,basename} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {install} from '../scripts/lib/install.mjs';
-import {createHash} from 'node:crypto';
+import {createHash,randomBytes} from 'node:crypto';
+import {openSync,closeSync} from 'node:fs';
 import {updateInstalled} from '../scripts/lib/update.mjs';
 import {installedMetadata} from '../cli/updates.mjs';
 import {main} from '../cli/app.mjs';
+import {CommerceClient} from '../cli/workflow.mjs';
+import {Storage} from '../cli/storage.mjs';
 import {documentedInvocation} from './fixtures/invocation.mjs';
-import {execFile} from 'node:child_process';
+import {syntheticProtocol} from './fixtures/protocol.mjs';
+import {execFile,spawnSync} from 'node:child_process';
 import {promisify} from 'node:util';
 
 async function fixture(t){
@@ -47,12 +51,34 @@ test('release manifest can add a runtime module without shipping arbitrary sourc
  await assert.rejects(install({...s,upgrade:true}),/manifest/i);
 });
 test('explicit upgrade changes both registrations without touching vault and can detect user edits',async t=>{
- const s=await fixture(t),first=await install(s);const vault=join(s.home,'.config/ai-commerce');await mkdir(vault,{recursive:true});await writeFile(join(vault,'vault.json'),'synthetic encrypted state');
+ const s=await fixture(t),first=await install(s);
+ const stateDir=join(s.base,'original private state'),passwordPath=join(s.base,'synthetic passphrase');
+ await writeFile(passwordPath,randomBytes(32).toString('hex')+'\n',{flag:'wx',mode:0o600});
+ const fd=openSync(passwordPath,'r');
+ try{
+  const store=new Storage(stateDir,'mcp',{passphraseFd:fd});
+  const keys=await store.withLock(s=>s.keys(true));
+  const f=syntheticProtocol({keys});
+  f.advance(Math.floor(Date.now()/1000)-f.now());
+  assert.equal((await new CommerceClient({...f,store}).login()).status,'active');
+ }finally{closeSync(fd);}
+ const vault=join(stateDir,'vault.json'),before=await readFile(vault);
+ function assertStored(invocation){
+  const probeFd=openSync(passwordPath,'r');
+  try{
+   const r=spawnSync(invocation[0],[...invocation.slice(1),'status','--profile','mcp','--state-dir',stateDir,'--passphrase-fd','3'],
+    {encoding:'utf8',timeout:20000,stdio:['pipe','pipe','pipe',probeFd]});
+   assert.equal(r.status,0,r.stderr||r.stdout);
+   assert.equal(JSON.parse(r.stdout).data.status,'stored');
+  }finally{closeSync(probeFd);}
+ }
+ assertStored([first.node,first.launcher]);
  await writeFile(join(s.source,'package.json'),JSON.stringify({name:'ai-commerce-skill',version:'0.5.0',type:'module'}));
  await assert.rejects(install(s),/collision/);
  const next=await install({...s,upgrade:true});assert.notEqual(next.directory,first.directory);
  for(const target of next.skills){const text=await readFile(join(target,'SKILL.md'),'utf8');assert.ok(text.includes(next.launcher.replaceAll('\\','\\\\')));}
- assert.equal(await readFile(join(vault,'vault.json'),'utf8'),'synthetic encrypted state');
+ for(const target of next.skills)assertStored(documentedInvocation(await readFile(join(target,'SKILL.md'),'utf8')));
+ assert.deepEqual(await readFile(vault),before);
  assert.ok((await readFile(first.launcher)).length>0);
  await writeFile(join(next.skills[1],'extra.md'),'user content');
  await writeFile(join(s.source,'package.json'),JSON.stringify({name:'ai-commerce-skill',version:'0.6.0',type:'module'}));

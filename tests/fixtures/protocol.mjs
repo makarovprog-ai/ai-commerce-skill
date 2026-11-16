@@ -3,9 +3,9 @@ import {generateKeyPairSync,createPublicKey,publicEncrypt,verify,sign,randomByte
 import {BASE,REDIRECT,generateKeys,b64,hash,thumb} from '../../cli/crypto.mjs';
 import {ClientError} from '../../cli/errors.mjs';
 
-export function syntheticProtocol({enrollmentDelay=0}={}){
+export function syntheticProtocol({enrollmentDelay=0,keys=generateKeys()}={}){
  let clock=1700000000,enrollment,challenge,tokenCounter=0,refreshes=0,calls=[],progress=[];
- const keys=generateKeys(),issuer=generateKeyPairSync('rsa',{modulusLength:2048});
+ const issuer=generateKeyPairSync('rsa',{modulusLength:2048});
  const release=generateKeyPairSync('rsa',{modulusLength:3072});
  const id='00000000-0000-4000-8000-000000000001',device='00000000-0000-4000-8000-000000000002',grant='00000000-0000-4000-8000-000000000003',packet='00000000-0000-4000-8000-000000000004',family='00000000-0000-4000-8000-000000000005';
  const requestId='r'.repeat(43),code='c'.repeat(43),dek=randomBytes(32);let state,blocked=false,queue=Promise.resolve(),failRefresh=false,tamperTranscript=false,denied=false;

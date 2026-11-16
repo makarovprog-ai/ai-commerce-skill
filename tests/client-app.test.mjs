@@ -31,6 +31,24 @@ test('failed update checks are invisible to shopping but explicit installation f
  assert.equal(await main(['status'],deps),0);assert.equal(checks,2);
  assert.ok(!JSON.stringify(values).includes('secret remote'));assert.ok(!JSON.stringify(values).includes('secret credential'));
 });
+test('updated and up-to-date responses end the update with authorization untouched, without opening custody',async()=>{
+ for(const state of [{status:'updated',version:'0.4.5'},{status:'up_to_date',current_version:'0.4.5'}]){
+  const values=[];let installCalls=0;
+  const deps={
+   updates:{async install(){installCalls++;return state;}},
+   get store(){assert.fail('custody accessed');},
+   get transport(){assert.fail('authorization transport accessed');},
+   write:v=>values.push(JSON.parse(v)),
+  };
+  assert.equal(await main(['update','install'],deps),0);
+  assert.equal(installCalls,1);
+  assert.equal(values.length,1);
+  assert.equal(values[0].data.status,state.status);
+  assert.equal(values[0].data.authorization,'unchanged');
+  assert.equal(values[0].event,undefined);
+  assert.equal(values[0].data.next_action,undefined);
+ }
+});
 test('CLI login progress, tools and MCP output never expose protocol secrets',async()=>{
  const f=syntheticProtocol(),values=[];const deps={...f,write:v=>values.push(JSON.parse(v))};
  assert.equal(await main(['login'],deps),0);assert.equal(values[0].data.user_code,'A2B3');assert.equal(values[0].event,'login_required');assert.equal(values.at(-1).data.status,'active');

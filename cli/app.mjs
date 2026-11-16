@@ -96,7 +96,12 @@ export async function main(args=process.argv.slice(2),dependencies={}) {
         let data;try{data=await updater.check(true);}catch{data={status:'unavailable'};}
         const {notice,...safe}=data;emit({ok:true,data:safe});return 0;
       }
-      try{emit({ok:true,data:await updater.install()});return 0;}
+      try{
+        const data=await updater.install();
+        emit({ok:true,data:{...data,authorization:'unchanged',
+          message:'Обновление не меняет сохранённую сессию. Повторно входить по Сбер ID из-за обновления не нужно.'}});
+        return 0;
+      }
       catch(error){
         emit({ok:false,error:error instanceof UpdateRecoveryError
           ?{code:'update_failed',reason:'recovery_required',next_action:'repair_installation',message:'Обновление прервано; восстановление установки не подтверждено. Сохраните журнал и резервные каталоги. До восстановления не запускайте новую установку или операции с заказами. Ключи и авторизация не изменялись.'}
