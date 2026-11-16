@@ -51,8 +51,8 @@ export async function requestJSON(value,options={},testTransport={}) {
       const requestId=safeRequestId(res.headers['x-request-id']);
       httpMetadata={http_status:res.statusCode,request_id:requestId};
       const elapsed=()=>Math.floor(performance.now()-start);
-      const invalid=()=>new ClientError('invalid_response',undefined,{...httpMetadata,elapsed_ms:elapsed()});
-      if(res.statusCode>=300&&res.statusCode<400){finish(invalid());res.destroy();return;}
+      const invalid=reason=>new ClientError('invalid_response',undefined,{...httpMetadata,elapsed_ms:elapsed(),reason});
+      if(res.statusCode>=300&&res.statusCode<400){finish(invalid('unexpected_redirect'));res.destroy();return;}
       let tls;
       if(options.reportPeer){
         const socket=res.socket,cert=socket.getPeerCertificate?.();
@@ -61,8 +61,12 @@ export async function requestJSON(value,options={},testTransport={}) {
         finish(null,{status:res.statusCode,requestId,elapsedMs:elapsed(),tls});res.destroy();return;
       }
       let size=0;const chunks=[];
-      res.on('data',chunk=>{size+=chunk.length;if(size>limit){finish(invalid());req.destroy();return;}chunks.push(chunk);});
-      res.on('end',()=>{try{if(!(res.headers['content-type']||'').toLowerCase().startsWith('application/json'))throw Error();finish(null,{status:res.statusCode,data:JSON.parse(Buffer.concat(chunks,size)),retryAfter:res.headers['retry-after'],responseBytes:size,requestId,elapsedMs:elapsed()});}catch{finish(invalid());}});
+      res.on('data',chunk=>{size+=chunk.length;if(size>limit){finish(invalid('response_too_large'));req.destroy();return;}chunks.push(chunk);});
+      res.on('end',()=>{
+        if(!(res.headers['content-type']||'').toLowerCase().startsWith('application/json')){finish(invalid('unexpected_content_type'));return;}
+        try{finish(null,{status:res.statusCode,data:JSON.parse(Buffer.concat(chunks,size)),retryAfter:res.headers['retry-after'],responseBytes:size,requestId,elapsedMs:elapsed()});}
+        catch{finish(invalid('invalid_json'));}
+      });
       res.on('error',error=>finish(failure(transportCause(error))));res.on('aborted',()=>finish(failure('reset')));
     });
     timer=setTimeout(()=>{finish(failure('timeout'));req.destroy();},testTransport.timeoutMs??(operation==='mcp_request'?180000:15000));

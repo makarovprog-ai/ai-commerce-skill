@@ -3,7 +3,7 @@ import {generateKeyPairSync,createPublicKey,publicEncrypt,verify,sign,randomByte
 import {BASE,REDIRECT,generateKeys,b64,hash,thumb} from '../../cli/crypto.mjs';
 import {ClientError} from '../../cli/errors.mjs';
 
-export function syntheticProtocol(){
+export function syntheticProtocol({enrollmentDelay=0}={}){
  let clock=1700000000,enrollment,challenge,tokenCounter=0,refreshes=0,calls=[],progress=[];
  const keys=generateKeys(),issuer=generateKeyPairSync('rsa',{modulusLength:2048});
  const release=generateKeyPairSync('rsa',{modulusLength:3072});
@@ -31,6 +31,7 @@ export function syntheticProtocol(){
  async function transport(url,options={}){
   calls.push({url,options});checkProof(url,options);const path=url.replace(BASE,'');
   if(path==='/device/requests'){
+   clock+=enrollmentDelay;
    enrollment=JSON.parse(options.body);assert.equal(enrollment.client_id,'vps-mcp-companion');assert.equal(enrollment.redirect_uri,REDIRECT);assert.equal(enrollment.code_challenge_method,'S256');
    const input=Buffer.from(['auth-sberid-cross-device-enrollment-v1',requestId,'n'.repeat(43),keys.signJkt,keys.wrapJkt,enrollment.client_id,REDIRECT,enrollment.state,enrollment.code_challenge,'S256','mcp:invoke',String(clock+600)].join('\n'));challenge=Buffer.alloc(32,9);
    return {status:201,data:{request_id:requestId,signing_input:b64(tamperTranscript?Buffer.from(input.toString().replace('mcp:invoke','connection:read')):input),wrapping_challenge:b64(publicEncrypt({key:createPublicKey(keys.wrap),oaepHash:'sha256',oaepLabel:input},challenge)),wrapping_label:b64(input),expires_at:clock+600,proof_expires_at:clock+120}};

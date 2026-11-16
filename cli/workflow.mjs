@@ -9,7 +9,9 @@ import {inspectSecretProvider} from './secret-store.mjs';
 const require=(value)=>{if(!value)throw new ClientError('invalid_response');};
 const opaque=v=>typeof v==='string'&&/^[A-Za-z0-9_-]{43}$/.test(v);
 const uuid=v=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v);
-const fields=(o,names)=>{require(o&&typeof o==='object'&&!Array.isArray(o)&&Object.keys(o).length===names.length&&names.every(n=>Object.hasOwn(o,n)));};
+const fields=(o,names,check=require)=>{check(o&&typeof o==='object'&&!Array.isArray(o)&&Object.keys(o).length===names.length&&names.every(n=>Object.hasOwn(o,n)));};
+const enrollmentError=(response,reason)=>httpError('invalid_response',response,'enrollment',reason);
+const enrollmentCheck=response=>(value,reason='invalid_enrollment_format')=>{if(!value)throw enrollmentError(response,reason);};
 const terminal=new Set(['denied','failed','expired','completed','request_unavailable']);
 const metadataBody=()=>Buffer.from(JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list',params:{}}));
 // Called only for HTTP responses from the fixed Auth/MCP transport targets.
@@ -60,43 +62,47 @@ export class CommerceClient{
       const state=random();
       const verifier=random();
       const challenge=hash(verifier);
-      const start=this.now();
       const enrollment={
         client_id:this.profile.client,redirect_uri:REDIRECT,state,code_challenge:challenge,
         code_challenge_method:'S256',sign_jwk:keys.sign_jwk,wrap_jwk:keys.wrap_jwk,
       };
       const created=await this.request('/device/requests',keys,'POST',enrollment);
-      require(created.status===201);
+      // The server issues the challenge during the request, not before outbound transit.
+      const receivedAt=this.now();
+      const checkCreated=enrollmentCheck(created);
+      checkCreated(created.status===201,'unexpected_http_status');
       const c=created.data;
-      fields(c,['request_id','signing_input','wrapping_challenge','wrapping_label','expires_at','proof_expires_at']);
-      require(opaque(c.request_id) && Number.isInteger(c.expires_at)
-        && c.expires_at>this.now() && c.expires_at<=start+605
-        && Number.isInteger(c.proof_expires_at) && c.proof_expires_at>this.now()
-        && c.proof_expires_at<=start+125 && c.proof_expires_at<=c.expires_at);
+      fields(c,['request_id','signing_input','wrapping_challenge','wrapping_label','expires_at','proof_expires_at'],checkCreated);
+      checkCreated(opaque(c.request_id) && Number.isInteger(c.expires_at) && Number.isInteger(c.proof_expires_at));
+      checkCreated(c.expires_at>receivedAt && c.proof_expires_at>receivedAt,'enrollment_expired');
+      checkCreated(c.expires_at<=receivedAt+605 && c.proof_expires_at<=receivedAt+125
+        && c.proof_expires_at<=c.expires_at,'enrollment_time_out_of_bounds');
 
-      const transcript=decode(c.signing_input);
+      let transcript;
+      try{transcript=decode(c.signing_input);}catch{throw enrollmentError(created,'invalid_enrollment_format');}
       const lines=transcript.toString('utf8').split('\n');
-      require(opaque(lines[2]));
+      checkCreated(opaque(lines[2]));
       const expected=[
         'auth-sberid-cross-device-enrollment-v1',c.request_id,lines[2],keys.signJkt,
         keys.wrapJkt,this.profile.client,REDIRECT,state,challenge,'S256',this.profile.scope,String(c.expires_at),
       ].join('\n');
-      require(transcript.equals(Buffer.from(expected)) && c.wrapping_label===b64(transcript));
-      const raw=unwrap(keys,c.wrapping_challenge,transcript);
+      checkCreated(transcript.equals(Buffer.from(expected)) && c.wrapping_label===b64(transcript),'enrollment_binding_mismatch');
+      let raw;
+      try{raw=unwrap(keys,c.wrapping_challenge,transcript);}catch{throw enrollmentError(created,'enrollment_key_unwrap_failed');}
       let proof;
       try {
-        require(raw.length===32);
+        checkCreated(raw.length===32,'enrollment_key_unwrap_failed');
         proof={signing_proof:sign(keys,transcript),wrapping_proof:b64(raw)};
       } finally {
         raw.fill(0);
       }
       const proved=await this.request(`/device/requests/${c.request_id}/prove`,keys,'POST',proof);
-      require(proved.status===200);
+      const checkProved=enrollmentCheck(proved);
+      checkProved(proved.status===200,'unexpected_http_status');
       const p=proved.data;
-      fields(p,['status','verification_uri','user_code','expires_at','interval']);
-      require(p.status==='pending' && p.verification_uri===`${BASE}/device/${c.request_id}`
-        && /^[0-9A-HJKMNP-TV-Z]{4}$/.test(p.user_code)
-        && p.expires_at===c.expires_at && p.interval===5);
+      fields(p,['status','verification_uri','user_code','expires_at','interval'],checkProved);
+      checkProved(p.status==='pending' && /^[0-9A-HJKMNP-TV-Z]{4}$/.test(p.user_code) && p.interval===5);
+      checkProved(p.verification_uri===`${BASE}/device/${c.request_id}` && p.expires_at===c.expires_at,'enrollment_binding_mismatch');
       this.output({verification_uri:p.verification_uri,user_code:p.user_code});
 
       let interval=5;

@@ -19,6 +19,56 @@ async function command(args,deps={}) {
   return {code,result:results.at(-1)};
 }
 
+test('enrollment diagnostic distinguishes time, format and device binding without exposing response content',async()=>{
+  const f=syntheticProtocol();
+  for(const [reason,change] of [
+    ['enrollment_expired', c=>{c.proof_expires_at=f.now();}],
+    ['enrollment_time_out_of_bounds', c=>{c.expires_at=f.now()+606;}],
+    ['enrollment_time_out_of_bounds', c=>{c.proof_expires_at=f.now()+126;}],
+    ['enrollment_time_out_of_bounds', c=>{c.expires_at=f.now()+60;c.proof_expires_at=f.now()+61;}],
+    ['invalid_enrollment_format', c=>{delete c.expires_at;c.secret=marker;}],
+    ['invalid_enrollment_format', c=>{c.signing_input=marker+'!';}],
+    ['enrollment_binding_mismatch', c=>{c.wrapping_label=marker;}],
+    ['enrollment_key_unwrap_failed', c=>{c.wrapping_challenge=Buffer.from(marker).toString('base64url');}],
+  ]){
+    const transport=async (url,options)=>{
+      const response=await f.transport(url,options);
+      assert.ok(url.endsWith('/device/requests'));
+      change(response.data);
+      return {...response,requestId,elapsedMs:12};
+    };
+    const {code,result}=await command(['login'],{...f,transport});
+    assert.equal(code,1);
+    assert.equal(result.error.code,'invalid_response');
+    assert.equal(result.error.diagnostics?.phase,'enrollment');
+    assert.equal(result.error.diagnostics.reason,reason);
+    assert.equal(result.error.diagnostics.http_status,201);
+    assert.equal(result.error.diagnostics.request_id,requestId);
+    assert.equal(result.error.diagnostics.elapsed_ms,12);
+    assert.ok(Number.isFinite(Date.parse(result.error.diagnostics.time_utc)));
+    assert.ok(!JSON.stringify(result).includes(marker));
+  }
+  assert.equal(f.progress.length,0);
+  assert.equal(f.state,undefined);
+});
+
+test('invalid approval URL after a successful prove reports binding mismatch and exposes no link',async()=>{
+  const f=syntheticProtocol();
+  const transport=async (url,options)=>{
+    const response=await f.transport(url,options);
+    if(url.endsWith('/prove'))return {...response,requestId,data:{...response.data,verification_uri:'https://example.invalid/'+marker}};
+    return response;
+  };
+  const {code,result}=await command(['login'],{...f,transport});
+  assert.equal(code,1);
+  assert.equal(result.error.code,'invalid_response');
+  assert.equal(result.error.diagnostics?.reason,'enrollment_binding_mismatch');
+  assert.equal(result.error.diagnostics.http_status,200);
+  assert.equal(result.error.diagnostics.request_id,requestId);
+  assert.ok(!JSON.stringify(result).includes(marker));
+  assert.equal(f.progress.length,0);
+});
+
 test('HTML 401 during catalog discovery preserves status and correlation, and sends no search or retries', async t=>{
   const f=syntheticProtocol(); await new CommerceClient(f).login();
   const seen=[];
@@ -31,6 +81,7 @@ test('HTML 401 during catalog discovery preserves status and correlation, and se
   assert.equal(code,1);assert.equal(result.error.code,'invalid_response');
   const d=result.error.diagnostics;
   assert.equal(d.phase,'tools/list'); assert.equal(d.http_status,401);assert.equal(d.request_id,requestId);
+  assert.equal(d.reason,'unexpected_content_type');
   assert.ok(Number.isSafeInteger(d.elapsed_ms)&&d.elapsed_ms>=0);assert.ok(Number.isFinite(Date.parse(d.time_utc)));
   assert.deepEqual(seen,['POST']);assert.equal(f.blocked,false);assert.ok(!JSON.stringify(result).includes(marker));
 });

@@ -10,6 +10,12 @@ test('complete synthetic enrollment proves keys, PKCE and signed JWT then transm
  assert.ok(!JSON.stringify(result).includes(f.state.access_token));assert.ok(!JSON.stringify(result).includes(f.state.refresh_token));
  await client.logout();assert.equal((await client.status()).status,'signed_out');
 });
+test('login checks a valid challenge against response time, even if issuance took more than five seconds',async()=>{
+ const f=syntheticProtocol({enrollmentDelay:8});
+ assert.equal((await new CommerceClient(f).login()).status,'active');
+ assert.equal(f.calls.filter(c=>c.url.endsWith('/prove')).length,1);
+ assert.equal(f.progress.length,1);
+});
 test('concurrent expired sessions rotate only once under custody lock',async()=>{
  const f=syntheticProtocol(),client=new CommerceClient(f);await client.login();f.advance(301);await Promise.all([client.session(),client.session()]);assert.equal(f.refreshes,1);assert.equal(f.state.rotation_in_flight,false);
 });
