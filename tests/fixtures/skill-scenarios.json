@@ -11,5 +11,8 @@
  {"id":"payment-declined","input":{"orderCreated":true,"bankOutcome":"DECLINED"},"expected":{"claimsPaid":false,"repeatPayCalls":0,"newOrders":0}},
  {"id":"unknown-mutation","input":{"orderUpdate":"timeout"},"expected":{"newOrders":0,"automaticPayCalls":0,"checkExistingOutcome":true}},
  {"id":"update-check-unavailable","input":{"checkStatus":"unavailable","searchOutcome":"success"},"expected":{"updateErrorMessages":0,"blockedSearch":false}},
- {"id":"update-install-failed","input":{"explicitInstall":true,"metadataFetch":"failure"},"expected":{"reportInstallFailure":true,"retryBusinessCalls":0}}
+ {"id":"update-install-failed","input":{"explicitInstall":true,"metadataFetch":"failure"},"expected":{"reportInstallFailure":true,"retryBusinessCalls":0}},
+ {"id":"offer-sberpay-after-install","user":"Подключи AI Commerce, хочу заказывать и оплачивать покупки через агента","input":{"aiCommerceInstall":"success"},"expected":{"offerOptionalSberPay":true,"sberPayPresenceChecks":0,"sberPaySetupCalls":0}},
+ {"id":"skip-sberpay-offer-when-known-installed","user":"Подключи AI Commerce для заказов. SberPay CLI у меня уже настроен","input":{"aiCommerceInstall":"success"},"expected":{"offerOptionalSberPay":false,"sberPayPresenceChecks":0,"sberPaySetupCalls":0}},
+ {"id":"skip-sberpay-offer-for-search-only","user":"Подключи AI Commerce, только для поиска товаров","input":{"aiCommerceInstall":"success"},"expected":{"offerOptionalSberPay":false,"sberPayPresenceChecks":0,"sberPaySetupCalls":0}}
 ]

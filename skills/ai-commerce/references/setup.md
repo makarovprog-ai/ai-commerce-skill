@@ -5,6 +5,29 @@ browser authorization and must not trigger production tests. Run `--help`,
 `doctor`, and `status` offline to check the local installation. If skill discovery
 is stale, reload the host or start a new session; do not alter global settings.
 
+## Optional SberPay for ordering
+
+If the user wants to order products through their agent, consider offering the
+separate SberPay CLI for payment after AI Commerce is installed. Base the offer
+on the conversation and what you already know. Skip it if SberPay CLI is already
+installed, the user has declined, or there is no indication they want to order.
+Don't ask about it just to complete installation, run detection commands or
+scan the user's files.
+
+For example: «Если планируете оплачивать покупки через агента, могу отдельно
+установить SberPay CLI. Для поиска он не нужен.» Wait for explicit agreement
+before installing anything. Then use the trusted SberPay instructions for the
+host and the regular npm package [`@sberpay-cli/cli@next`](https://www.npmjs.com/package/@sberpay-cli/cli).
+Check platform and prerequisites within that separate request. If it would
+require unrelated system or user-wide changes (such as installing Node.js or
+editing PATH, shell, or global npm settings), explain the missing prerequisite
+and ask before making those changes. Don't use `sudo` or bypass host policy.
+Installing AI Commerce never installs the SberPay diagnostic package, enables
+telemetry or live payments, or starts card linking. Approval to install the
+regular CLI is not approval for those actions or for a payment.
+
+## Browser sign-in
+
 When the user explicitly requests sign-in or reconnection, run `login`. Installing,
 updating or reloading the skill alone does not request sign-in. Surface the browser link and four
 symbols. The user opens the link, compares the symbols, and approves there. Do

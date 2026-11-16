@@ -111,13 +111,18 @@ Business calls do not fetch tool schemas automatically; the agent uses the
 retained current catalog. A metadata failure must not be reported as a failed
 checkout/payment that has not actually been sent.
 
-Each remote `tools/list` HTTP request has a 15-second complete-response deadline;
-ordinary business MCP requests keep 180 seconds. Auth requests keep 15 seconds.
-These are per-request limits, not a promise that the whole command, including
-refresh, preflight and pagination, finishes in 15 seconds. A `network_error` may
-include safe operation/stage/elapsed/cause diagnostics; it contains no raw request,
-token or URL. A network failure does not prove the bank session expired or that a
-sent mutation had no effect. There are no automatic network/business retries.
+Built-in tool discovery (`tools`, or the MCP check in `session`) gives the
+catalogue page, MCP session check and release-key fetch 20 seconds per attempt.
+It may retry one timed-out or reset request before HTTP response headers, at most
+once for the invocation. It doesn't restart completed pages, retry HTTP errors,
+or re-run `tools/call`, the token exchange or a generic `mcp --input` operation.
+Other deadlines are unchanged (180 seconds for ordinary business MCP calls,
+15 seconds for normal Auth calls). A `network_error` may include safe stage,
+elapsed time and cause. Discovery errors may also include `diagnostics.attempt`
+and `diagnostics.ttfb_ms` (time to the first HTTP headers, only if received).
+Diagnostics contain no raw request, token or URL. A network failure does not
+prove the bank session expired or that a sent mutation had no effect. Don't
+ask the user to sign in just for this error.
 
 This CLI targets AI Commerce's authenticated JSON-only HTTP MCP interface. It is
 not a universal MCP transport client: do not add speculative `initialize`, SSE,

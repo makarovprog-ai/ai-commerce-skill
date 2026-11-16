@@ -20,7 +20,8 @@ If the placeholder is unresolved,
 the skill has not been installed: follow the repository README, not a guessed
 global executable.
 
-- For first setup, browser authorization, secure-store issues or reconnecting,
+- For first setup (including an optional SberPay offer), browser authorization,
+  secure-store issues or reconnecting,
   read [setup](references/setup.md).
 - For a failed command or a cloud/proxy connection issue, read
   [troubleshooting](references/commands.md#troubleshooting).
@@ -29,6 +30,11 @@ global executable.
 - For product selection, source identity, prices and presentation, read
   [search](references/search.md).
 - Before preparing a purchase, read [checkout](references/checkout.md).
+
+After installation, use what you already know about the user's plans and setup
+to decide whether to offer SberPay CLI for paying for orders. Don't probe for
+its presence, suggest it when known to be installed, or install it without
+separate consent. It is not needed for search or sign-in.
 
 Offline `status:expired` means the local AI Commerce access token expired, NOT
 that the Sber ID session expired. Run the requested normal `tools`/`mcp` command:
