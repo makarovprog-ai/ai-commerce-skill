@@ -20,8 +20,11 @@ test('MCP signs exact raw bytes, query target, DPoP and decryptable release tran
  const packet=JSON.parse(Buffer.from(h['aipay-key-release'],'base64url'));
  const transcript=['aipay-mcp-release-v1','kid=synthetic-key','packet_id=packet','grant_id=grant','device_id=device','family_id=family','dek_generation=1',`context_hash=${hash(Buffer.from('synthetic-wrapping-context'))}`,`jkt=${keys.signJkt}`,`dpop_jti=${claims.jti}`,'method=POST',`url=${url}`,`body_hash=${hash(body)}`,`ath=${hash(state.access_token)}`,`expires_at=${now+120}`].join('\n');
  assert.deepEqual(privateDecrypt({key:release.privateKey,oaepHash:'sha256',oaepLabel:Buffer.from(transcript)},Buffer.from(packet.encrypted_dek,'base64url')),dek);
- const params=h['signature-input'].slice(6);const base=`"@method": POST\n"@target-uri": ${url}\n`+['content-type','content-digest','authorization','dpop','aipay-key-release'].map(n=>`"${n}": ${h[n]}\n`).join('')+`"@signature-params": ${params}`;
- const signature=Buffer.from(h.signature.slice(7,-1),'base64');const pub={key:createPublicKey(keys.sign),dsaEncoding:'ieee-p1363'};
+ assert.equal(h['signature-input'],undefined);assert.equal(h.signature,undefined);
+ assert.match(h['ai-commerce-signature-input']??'',/^aipay=\(/);
+ assert.match(h['ai-commerce-signature']??'',/^aipay=:[A-Za-z0-9+/]{86}==:$/);
+ const params=h['ai-commerce-signature-input'].slice(6);const base=`"@method": POST\n"@target-uri": ${url}\n`+['content-type','content-digest','authorization','dpop','aipay-key-release'].map(n=>`"${n}": ${h[n]}\n`).join('')+`"@signature-params": ${params}`;
+ const signature=Buffer.from(h['ai-commerce-signature'].slice(7,-1),'base64');const pub={key:createPublicKey(keys.sign),dsaEncoding:'ieee-p1363'};
  assert.ok(verify('sha256',Buffer.from(base),pub,signature));assert.ok(!verify('sha256',Buffer.from(base.replace(url,url+'2')),pub,signature));
  assert.throws(()=>privateDecrypt({key:release.privateKey,oaepHash:'sha256',oaepLabel:Buffer.from(transcript.replace(hash(body),'tampered'))},Buffer.from(packet.encrypted_dek,'base64url')));
 });

@@ -95,7 +95,8 @@ test('paged discovery signs every original page request and selects only after o
   if(url!==mcp)return f.transport(url,options);
   const payload=JSON.parse(options.body);
   assert.equal(options.headers['content-digest'],`sha-256=:${createHash('sha256').update(options.body).digest('base64')}:`);
-  assert.ok(options.headers.signature&&options.headers['aipay-key-release']);
+  assert.ok(options.headers['ai-commerce-signature']&&options.headers['ai-commerce-signature-input']&&options.headers['aipay-key-release']);
+  assert.equal(options.headers.signature,undefined);assert.equal(options.headers['signature-input'],undefined);
   if(payload.id===1){
    assert.deepEqual(payload,{jsonrpc:'2.0',id:1,method:'tools/list',params:{}});
    return {status:200,data:page([first],{nextCursor:'opaque + / =',_meta:{revision:5}})};

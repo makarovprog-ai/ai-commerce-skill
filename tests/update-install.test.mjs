@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm,realpath,cp} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,basename} from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {install} from '../scripts/lib/install.mjs';
 import {createHash,randomBytes} from 'node:crypto';
 import {openSync,closeSync} from 'node:fs';
@@ -84,6 +84,43 @@ test('explicit upgrade changes both registrations without touching vault and can
  await writeFile(join(s.source,'package.json'),JSON.stringify({name:'ai-commerce-skill',version:'0.6.0',type:'module'}));
  await assert.rejects(install({...s,upgrade:true}),/modified|collision/);
  assert.deepEqual(documentedInvocation(await readFile(join(next.skills[0],'SKILL.md'),'utf8')),[next.node,next.launcher]);
+});
+test('installed update can sign tools/list using the existing device and session without logging in',async t=>{
+ const s=await fixture(t),previous=process.env.AI_COMMERCE_TEST_PREVIOUS_SOURCE;
+ const first=await install(previous?{...s,source:previous}:s),stateDir=join(s.base,'retained profile'),passphrasePath=join(s.base,'test passphrase');
+ await writeFile(passphrasePath,randomBytes(32).toString('hex')+'\n',{flag:'wx',mode:0o600});
+ const OldStorage=(await import(pathToFileURL(join(first.directory,'cli/storage.mjs')).href)).Storage;
+ const OldClient=(await import(pathToFileURL(join(first.directory,'cli/workflow.mjs')).href)).CommerceClient;
+ let f,configuredDevice,fd=openSync(passphrasePath,'r');
+ try{
+  const store=new OldStorage(stateDir,'mcp',{passphraseFd:fd});
+  const keys=await store.withLock(v=>v.keys(true));
+  f=syntheticProtocol({keys});
+  f.advance(Math.floor(Date.now()/1000)-f.now());
+  configuredDevice=(await new OldClient({...f,store}).login()).device_id;
+ }finally{closeSync(fd);}
+ const vault=join(stateDir,'vault.json'),before=await readFile(vault);
+ const version=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8')).version;
+ await writeFile(join(s.source,'package.json'),JSON.stringify({name:'ai-commerce-skill',version,type:'module'}));
+ const next=await install({...s,upgrade:true});assert.notEqual(next.directory,first.directory);
+ assert.ok((await readFile(vault)).equals(before),'installer must not rewrite the vault');
+ const {main:updatedMain}=await import(pathToFileURL(join(next.directory,'cli/app.mjs')).href);
+ f.calls.length=0;
+ const output=[];fd=openSync(passphrasePath,'r');
+ try{
+  const result=await updatedMain(['session','--profile','mcp','--state-dir',stateDir,'--passphrase-fd',String(fd)],{
+   now:f.now,transport:f.transport,updates:{check:async()=>({status:'unavailable'})},write:line=>output.push(JSON.parse(line)),
+  });
+  assert.equal(result,0);
+ }finally{closeSync(fd);}
+ assert.equal(output.length,1);
+ assert.equal(output[0].data.device_id,configuredDevice);
+ assert.equal(output[0].data.provider_check,'verified');
+ assert.deepEqual(f.calls.map(c=>new URL(c.url).pathname),['/sberid-auth/mcp-session','/sberid-auth/release-jwks','/mcp']);
+ const headers=f.calls.at(-1).options.headers;
+ assert.match(headers['ai-commerce-signature-input']??'',/^aipay=\(/);
+ assert.match(headers['ai-commerce-signature']??'',/^aipay=:/);
+ assert.equal(headers['signature-input'],undefined);assert.equal(headers.signature,undefined);
 });
 test('upgrade rollback restores first registration if second switch fails',async t=>{
  const s=await fixture(t),first=await install(s);const before=await Promise.all(first.skills.map(p=>readFile(join(p,'SKILL.md'),'utf8')));

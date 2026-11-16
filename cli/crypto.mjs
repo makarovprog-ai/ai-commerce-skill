@@ -2,6 +2,7 @@ import {createHash,createPrivateKey,createPublicKey,generateKeyPairSync,randomBy
 
 export const BASE='https://api.sber-ai-pay.ru/sberid-auth';
 export const CLIENT='vps-companion',REDIRECT=`${BASE}/device/complete`;
+export const MCP_SIGNATURE_HEADERS=Object.freeze({input:'ai-commerce-signature-input',signature:'ai-commerce-signature'});
 const PROFILES=Object.freeze({diagnostic:Object.freeze({client:CLIENT,scope:'connection:read',audience:BASE}),mcp:Object.freeze({client:'vps-mcp-companion',scope:'mcp:invoke',audience:'https://api.sber-ai-pay.ru/mcp'})});
 export function profile(name='mcp'){if(!Object.hasOwn(PROFILES,name))throw Error('invalid_profile');return PROFILES[name];}
 export const b64=value=>Buffer.from(value).toString('base64url');
@@ -68,6 +69,7 @@ export function mcpRequest(keys,state,jwks,body,now=Math.floor(Date.now()/1000),
   const headers={accept:'application/json','content-type':'application/json','content-digest':`sha-256=:${createHash('sha256').update(body).digest('base64')}:`,authorization:`DPoP ${state.access_token}`,dpop:proof,'aipay-key-release':release};
   const params=`("@method" "@target-uri" "content-type" "content-digest" "authorization" "dpop" "aipay-key-release");created=${now};expires=${now+30};keyid="${keys.signJkt}";alg="ecdsa-p256-sha256"`;
   const base=`"@method": POST\n"@target-uri": ${url}\n`+['content-type','content-digest','authorization','dpop','aipay-key-release'].map(n=>`"${n}": ${headers[n]}\n`).join('')+`"@signature-params": ${params}`;
-  headers['signature-input']='aipay='+params;headers.signature=`aipay=:${nodeSign('sha256',Buffer.from(base),{key:keys.sign,dsaEncoding:'ieee-p1363'}).toString('base64')}:`;
+  headers[MCP_SIGNATURE_HEADERS.input]='aipay='+params;
+  headers[MCP_SIGNATURE_HEADERS.signature]=`aipay=:${nodeSign('sha256',Buffer.from(base),{key:keys.sign,dsaEncoding:'ieee-p1363'}).toString('base64')}:`;
   return {method:'POST',headers,body};
 }

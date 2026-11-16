@@ -121,7 +121,8 @@ test('business timeout diagnostics never imply non-execution or replay the origi
  const attempts=[],values=[];
  const server=http.createServer((req,res)=>{
   const chunks=[];req.on('data',chunk=>chunks.push(chunk));req.on('end',()=>{
-   attempts.push({body:Buffer.concat(chunks),digest:req.headers['content-digest'],signature:req.headers.signature});
+   attempts.push({body:Buffer.concat(chunks),digest:req.headers['content-digest'],signature:req.headers['ai-commerce-signature'],
+    standardSignature:req.headers.signature});
    res.writeHead(200,{'content-type':'application/json'});res.write(secret);
   });
  });
@@ -130,6 +131,7 @@ test('business timeout diagnostics never imply non-execution or replay the origi
  const transport=(url,options)=>url===target?requestJSON(url,options,{mapURL:()=>`http://127.0.0.1:${server.address().port}/?${secret}`,timeoutMs:150}):f.transport(url,options);
  assert.equal(await main(['mcp'],{...f,transport,input:Readable.from([body]),write:v=>values.push(JSON.parse(v))}),1);
  assert.equal(attempts.length,1);assert.deepEqual(attempts[0].body,body);assert.ok(attempts[0].signature);
+ assert.equal(attempts[0].standardSignature,undefined);
  assert.equal(attempts[0].digest,`sha-256=:${createHash('sha256').update(body).digest('base64')}:`);
  const output=values.at(-1);
  assert.deepEqual(output,{version:1,ok:false,error:{code:'network_error',details:{operation:'mcp_request',stage:'response_body',elapsed_ms:output.error.details?.elapsed_ms,cause:'timeout'},diagnostics:{phase:'tools/call',http_status:200,time_utc:output.error.diagnostics.time_utc,elapsed_ms:output.error.details.elapsed_ms}}});
