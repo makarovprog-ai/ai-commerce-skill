@@ -7,6 +7,12 @@ const unsentTokenFailures=new WeakSet();
 export const tokenRequestWasNotSent=error=>unsentTokenFailures.has(error);
 function unsent(error){unsentTokenFailures.add(error);return error;}
 
+// This is the current server's syntax check only, not a signature/token check.
+const signatureInputPattern=/^aipay=\("@method" "@target-uri" "content-type" "content-digest" "authorization" "dpop" "aipay-key-release"\);created=[1-9][0-9]{0,10};expires=[1-9][0-9]{0,10};keyid="[A-Za-z0-9_-]{43}";alg="ecdsa-p256-sha256"$(?![\s\S])/;
+export function signatureInputSnapshot(value){
+  return {present:value!==undefined,expected_format:typeof value==='string'&&value.length<=512&&signatureInputPattern.test(value)};
+}
+
 function transportCause(error) {
   const code=error?.code;
   if(code==='ETIMEDOUT'||code==='ESOCKETTIMEDOUT')return 'timeout';
@@ -142,6 +148,9 @@ export async function requestJSON(value,options={},testTransport={}) {
         }else if(socket.connecting)socket.once('connect',send);
         else send();
       });
-    }else req.end(options.body);
+    }else{
+      if(operation==='mcp_metadata')options.onSignatureInput?.(signatureInputSnapshot(req.getHeader('signature-input')));
+      req.end(options.body);
+    }
   });
 }
