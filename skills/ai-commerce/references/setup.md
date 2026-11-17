@@ -28,7 +28,10 @@ regular CLI is not approval for those actions or for a payment.
 
 ## Browser sign-in
 
-After a successful first installation requested by the user and performed by the
+Before installing, confirm that the target skill registration does not exist in
+the selected scope. If it exists or you cannot verify its absence, don't treat
+the run as a first installation; the installer can also succeed on a reinstall.
+After a confirmed first installation requested by the user and performed by the
 agent, use offline `status` in the intended account/profile and state directory.
 If it returns `signed_out`, run `login` once without asking the user to request
 it separately. Do not start sign-in for "install only" or an explicit opt-out,

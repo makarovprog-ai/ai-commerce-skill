@@ -19,5 +19,6 @@
  {"id":"first-install-without-login","user":"Установи AI Commerce, но пока без входа","input":{"aiCommerceInstall":"success","firstInstall":true,"status":"signed_out"},"expected":{"loginStarts":0}},
  {"id":"first-install-reuses-existing-session","user":"Установи скилл AI Commerce","input":{"aiCommerceInstall":"success","firstInstall":true,"status":"expired"},"expected":{"loginStarts":0,"manualRefreshLoops":0}},
  {"id":"update-while-signed-out","user":"Обнови AI Commerce","input":{"updateStatus":"updated","status":"signed_out"},"expected":{"loginStarts":0}},
+ {"id":"same-source-reinstall-while-signed-out","user":"Установи AI Commerce из репозитория","input":{"targetRegistrationBeforeInstall":"present","aiCommerceInstall":"success","status":"signed_out"},"expected":{"loginStarts":0}},
  {"id":"first-install-login-503","user":"Подключи AI Commerce","input":{"aiCommerceInstall":"success","firstInstall":true,"status":"signed_out","loginOutcome":"http_503"},"expected":{"loginStarts":1,"reportInstallSucceeded":true,"reportLoginFailed":true,"askForCredentialsInChat":false}}
 ]

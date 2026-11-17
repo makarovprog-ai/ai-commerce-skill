@@ -38,7 +38,7 @@ Offline `status:expired` means the local AI Commerce access token expired, NOT
 that the Sber ID session expired. Run the requested normal `tools`/`mcp` command:
 the CLI refreshes access automatically before sending it when needed. Do not
 announce expiry, request login, or add a manual refresh loop based on offline
-expiry. Start `login` on first agent-led installation if `signed_out` and not
+expiry. Start `login` on confirmed first agent-led installation if `signed_out` and not
 opted out, per
 [setup](references/setup.md#browser-sign-in). Otherwise log in only when
 explicitly requested or needed for a requested operation (`session_missing`
