@@ -31,8 +31,8 @@ global executable.
   [search](references/search.md).
 - Before preparing a purchase, read [checkout](references/checkout.md).
 
-After installation, consider offering SberPay CLI if the user wants to order.
-Don't probe for it, offer it when known installed, or install it without consent.
+After first install, offer optional SberPay CLI for purchases even on a plain
+connect request, per [setup](references/setup.md#optional-sberpay-for-ordering).
 
 Offline `status:expired` means the local AI Commerce access token expired, NOT
 that the Sber ID session expired. Run the requested normal `tools`/`mcp` command:
