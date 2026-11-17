@@ -27,7 +27,7 @@ global executable.
   [troubleshooting](references/commands.md#troubleshooting).
 - For command options and exact-byte MCP requests, read
   [commands](references/commands.md).
-- For product selection, source identity, prices and presentation, read
+- For product selection, source identity, prices and inline photos in Codex, read
   [search](references/search.md).
 - Before preparing a purchase, read [checkout](references/checkout.md).
 

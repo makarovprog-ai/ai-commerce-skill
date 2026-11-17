@@ -14,6 +14,13 @@
     "response":{"ok":true,"data":{"jsonrpc":"2.0","id":2,"result":{"structuredContent":{"matches":[{"label":"Белая кружка","shop":"Мегамаркет","link":"https://shop.example.test/mug","rubles":469}]}}}}
   },
   {
+    "id":"codex-inline-product-photos",
+    "user":"Найди айфоны",
+    "host":"Codex desktop chat; Markdown remote image embedding is permitted for the returned image URL",
+    "tool":{"name":"find_catalog_offers","outputSchema":{"type":"object","properties":{"matches":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string"},"shop":{"type":"string"},"link":{"type":"string","description":"Product card URL"},"thumbnail":{"type":"string","description":"Image URL for this exact offer"},"rubles":{"type":"number","description":"RUB major units"}}}}}}},
+    "response":{"ok":true,"data":{"jsonrpc":"2.0","id":7,"result":{"structuredContent":{"matches":[{"label":"iPhone 16, бирюзовый","shop":"InSales","link":"https://shop.example.test/iphone-16?sku=teal","thumbnail":"https://cdn.example.test/iphone-16-teal.jpg?width=480","rubles":64990},{"label":"iPhone 17, лавандовый","shop":"Мегамаркет","link":"https://shop.example.test/iphone-17","rubles":94868}]}}}}
+  },
+  {
     "id":"text-content-groups",
     "user":"Покажи результаты по кружкам и тарелкам",
     "tool":{"name":"find_items","outputSchema":{"type":"object","required":["groups"],"properties":{"groups":{"type":"array","items":{"type":"object","required":["query","offers"],"properties":{"query":{"type":"string"},"offers":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string"},"rubles":{"type":"number","description":"RUB major units"}}}}}}}}}},

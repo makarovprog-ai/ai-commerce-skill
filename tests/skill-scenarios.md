@@ -22,6 +22,13 @@ fresh agent with the skill. Ask it to prepare the response and list any further
 calls it needs. Do not supply expected decisions before it answers. Do not use
 network, credentials, real user sessions or purchases.
 
+For the Codex photo case, also supply the fixture's host context. The first
+offer should embed its actual image outside a table, with the title linking to
+the product page and the original query parameters intact. The offer without
+an image stays visible without a substitute. Repeat the case with the image
+blocked by host policy: no attempted bypass or network fetch, and no plain
+“Фото” link in place of the image in Codex.
+
 Evaluate observable outcomes: three nested offers remain visible despite an empty
 previous preview; renamed tools/fields follow the supplied current schema; text
 content is not assumed to be JSON in its first block; one empty group does not
