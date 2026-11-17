@@ -31,19 +31,19 @@ global executable.
   [search](references/search.md).
 - Before preparing a purchase, read [checkout](references/checkout.md).
 
-After installation, use what you already know about the user's plans and setup
-to decide whether to offer SberPay CLI for paying for orders. Don't probe for
-its presence, suggest it when known to be installed, or install it without
-separate consent. It is not needed for search or sign-in.
+After installation, consider offering SberPay CLI if the user wants to order.
+Don't probe for it, offer it when known installed, or install it without consent.
 
 Offline `status:expired` means the local AI Commerce access token expired, NOT
 that the Sber ID session expired. Run the requested normal `tools`/`mcp` command:
 the CLI refreshes access automatically before sending it when needed. Do not
 announce expiry, request login, or add a manual refresh loop based on offline
-expiry. Log in only for an explicit sign-in/reconnect request or when a requested
-commerce operation actually needs it (`session_missing` in the same account,
-profile and state location, confirmed deactivation, or unresolved refresh outcome).
-An install, update or skill reload is not a sign-in request.
+expiry. Start `login` on first agent-led installation if `signed_out` and not
+opted out, per
+[setup](references/setup.md#browser-sign-in). Otherwise log in only when
+explicitly requested or needed for a requested operation (`session_missing`
+in the same context, deactivation, or unresolved refresh outcome). Updates,
+reinstalls and skill reloads don't initiate sign-in.
 For `refresh_outcome_unknown`, explain that access could not safely be restored,
 not that the bank revoked it; never retry the old refresh or delete its marker.
 A refresh `network_error` with `details.delivery:not_sent` keeps the saved
